@@ -98,7 +98,7 @@ export function applyWindowMaterial(
  * @param errorMessage 未选择任何文件时，返回错误信息
  */
 export async function openDialog(
-  parentWindow: BaseWindow,
+  parentWindow: BrowserWindow,
   options: OpenDialogOptions,
   errorMessage: string
 ): Promise<{
@@ -107,9 +107,12 @@ export async function openDialog(
   error?: string
 }> {
   const result = await dialog.showOpenDialog(parentWindow, options)
-  parentWindow.show()
+  if (!parentWindow.isDestroyed()) {
+    parentWindow.show()
+  }
   if (result.canceled || result.filePaths.length === 0) {
     return { success: false, error: errorMessage }
   }
   return { success: true, data: result }
+}
 }
