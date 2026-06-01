@@ -1,5 +1,6 @@
 import { ipcMain, dialog, app } from 'electron'
 import detachedWindowManager from '../../core/detachedWindowManager'
+import windowManager from '../../managers/windowManager'
 
 /**
  * 对话框API - 插件专用
@@ -75,7 +76,9 @@ export class PluginDialogAPI {
           event.returnValue = undefined
           return
         }
-        const result = dialog.showSaveDialogSync(targetWindow, options)
+        const result = windowManager.withBlurHideSuppressed(() =>
+          dialog.showSaveDialogSync(targetWindow, options)
+        )
         event.returnValue = result
       } catch (error) {
         console.error('[PluginDialog] 显示文件保存对话框失败:', error)
@@ -94,7 +97,9 @@ export class PluginDialogAPI {
           event.returnValue = []
           return
         }
-        const result = dialog.showOpenDialogSync(targetWindow, options)
+        const result = windowManager.withBlurHideSuppressed(() =>
+          dialog.showOpenDialogSync(targetWindow, options)
+        )
         event.returnValue = result || []
       } catch (error) {
         console.error('[PluginDialog] 显示文件打开对话框失败:', error)
