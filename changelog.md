@@ -1,46 +1,35 @@
-# 2.5.0
+# 2.6.0
 
 ## 新功能 (Feat)
 
-- 超级面板支持剪贴板文件/文件夹的系统指令，并新增 Windows 文件管理器「复制路径」「在终端打开」能力
-- 指令别名扩展到系统应用和窗口指令（PR [#452](../../pull/452)，感谢 [@Particaly](https://github.com/Particaly) 的贡献 🎉）
-- Windows 插件分离窗口支持独立任务栏图标（PR [#437](../../pull/437)，感谢 [@1284604307](https://github.com/1284604307) 的贡献 🎉）
-- 支持内部 API 授权，并修复授权配置保存问题（PR [#482](../../pull/482)，感谢 [@Particaly](https://github.com/Particaly) 的贡献 🎉）
-- 插件卸载时可选择保留用户数据，并统一插件 confirm 处理逻辑和类型定义（PR [#491](../../pull/491)，感谢 [@guopenghui](https://github.com/guopenghui) 的贡献 🎉）
-- 设置插件新增匹配指令详情页，便于查看和配置匹配指令（PR [#494](../../pull/494)，感谢 [@guopenghui](https://github.com/guopenghui) 的贡献 🎉）
-- 系统插件新增 Windows「前往文件夹」指令，并处理 Windows 路径非法字符（PR [#496](../../pull/496)，感谢 [@guopenghui](https://github.com/guopenghui) 的贡献 🎉）
-- 网页快开支持普通网站、上传图标，并优化网页快开管理界面（PR [#505](../../pull/505)，感谢 [@guopenghui](https://github.com/guopenghui) 的贡献 🎉）
-- 下载流程增加进度显示
+- 插件详情新增「关闭搜索栏推送」开关，可按插件禁用搜索框推送结果（PR [#520](../../pull/520)，感谢 [@guopenghui](https://github.com/guopenghui) 的贡献 🎉）
+- 全局快捷键新增自动复制选中文本开关（PR [#521](../../pull/521)，感谢 [@Particaly](https://github.com/Particaly) 的贡献 🎉）
+- 插件市场 banner 和分类图标改为本地资源加载，减少远程资源依赖
+- 更新 Electron 版本
+- 更新内置原生模块
 
 ## 修复 (Fix)
 
-- 修复超级面板剪贴板识别问题，改用序号机制避免取到旧内容（PR [#431](../../pull/431)，感谢 [@Particaly](https://github.com/Particaly) 的贡献 🎉）
-- 修复 Linux 启动含参数应用路径的问题（PR [#454](../../pull/454)，感谢 [@strive1216](https://github.com/strive1216) 的贡献 🎉）
-- 修复系统文件对话框关闭后主窗口自动显示的问题（PR [#474](../../pull/474)，感谢 [@Flinglin](https://github.com/Flinglin) 的贡献 🎉）
-- 修复系统文件窗口导入错误（PR [#477](../../pull/477)，感谢 [@Flinglin](https://github.com/Flinglin) 的贡献 🎉）
-- 修复应用内更新后 Windows 注册表版本信息未同步的问题（PR [#432](../../pull/432)，感谢 [@EightOrange](https://github.com/EightOrange) 的贡献 🎉）
-- 修复 mainPushCallback 返回异步结果或对象结果时无法正确处理的问题（PR [#487](../../pull/487)，感谢 [@guopenghui](https://github.com/guopenghui) 的贡献 🎉）
-- 修复 `onPluginOut(isKill)` 无法监听的问题
-- 修复独立插件窗口重入时未前置的问题（PR [#504](../../pull/504)，感谢 [@kuraxii](https://github.com/kuraxii) 的贡献 🎉）
-- 修复拖拽文件进入主窗口时窗口被 blur 隐藏的问题（PR [#506](../../pull/506)，感谢 [@guopenghui](https://github.com/guopenghui) 的贡献 🎉）
-- 修复 macOS 唤醒主窗口时原应用丢失焦点的问题
-- 修复全局快捷键取词时机，等待按键释放并按需复制选中文本（PR [#508](../../pull/508)，感谢 [@Particaly](https://github.com/Particaly) 的贡献 🎉）
-- 修复网页快开快捷键触发和已删除记录清理问题
+- 修复插件打开系统文件对话框时主窗口被隐藏的问题（PR [#518](../../pull/518)，感谢 [@jn12-29](https://github.com/jn12-29) 的贡献 🎉）
+- 修复 Windows 下文件管理器成为前台窗口时当前窗口数据被错误切换的问题（PR [#517](../../pull/517)，感谢 [@Flinglin](https://github.com/Flinglin) 的贡献 🎉）
+- 修复 Windows「复制路径」系统指令在部分文件管理器窗口中无法匹配的问题（PR [#517](../../pull/517)，感谢 [@Flinglin](https://github.com/Flinglin) 的贡献 🎉）
+- 修复全局快捷键取词等待时间过长的问题（PR [#521](../../pull/521)，感谢 [@Particaly](https://github.com/Particaly) 的贡献 🎉）
+- 修复取词时文件优先级低于图片和文本的问题
+- 加强插件文件对话框期间的窗口 blur 处理，避免对话框关闭后窗口状态异常
 
 ## 优化 (Optimize)
 
-- 内置设置插件返回后重置跳转到通用设置
-- 优化插件市场、插件详情、指令列表、快捷键和网页快开等设置界面交互
-- 增加 Web Search、Windows Explorer、系统插件前往文件夹、插件卸载清理等测试覆盖
+- 优化插件市场默认地址配置
+- 优化全局快捷键取词流程，使用原生 `getSelectedContent` 替代剪贴板轮询
+- 优化 `getSelectedContent` 类型安全和防御性（PR [#525](../../pull/525)，感谢 [@pantao](https://github.com/pantao) 的贡献 🎉）
+- 增加插件搜索栏推送配置相关测试覆盖
 
 ## 重构 (Refactor)
 
-- 抽离匹配指令详情弹窗 composable
-- 抽取网页快开类型定义
-- 新增全局输入管理器，统一管理 `uiohook` 的启动、释放和多模块监听
+无
 
 ## 其他 (Chore)
 
-无
+- 更新项目文档中的 Electron 版本说明
 
 ---
