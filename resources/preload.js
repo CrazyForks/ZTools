@@ -900,6 +900,8 @@ window.ztools = {
       await electron.ipcRenderer.invoke('internal:get-plugin-doc-keys', pluginRef),
     getPluginDoc: async (pluginRef, docKey) =>
       await electron.ipcRenderer.invoke('internal:get-plugin-doc', pluginRef, docKey),
+    deletePluginDoc: async (pluginRef, docKey) =>
+      await electron.ipcRenderer.invoke('internal:delete-plugin-doc', pluginRef, docKey),
     exportPluginDoc: async (pluginRef, docKey) =>
       await electron.ipcRenderer.invoke('internal:export-plugin-doc', pluginRef, docKey),
     getPluginDataStats: async () =>

@@ -177,6 +177,14 @@ declare global {
           type?: 'document' | 'attachment'
           error?: string
         }>
+        deletePluginDoc: (
+          pluginName: string,
+          key: string
+        ) => Promise<{
+          success: boolean
+          deletedCount?: number
+          error?: string
+        }>
         exportPluginDoc: (
           pluginName: string,
           key: string

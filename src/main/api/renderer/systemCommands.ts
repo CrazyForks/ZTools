@@ -267,21 +267,6 @@ async function handleTemplateSearch(
   return { success: false, error: '缺少搜索关键词' }
 }
 
-async function handleOpenWebpage(
-  ctx: SystemCommandContext,
-  url: string,
-  label: string
-): Promise<any> {
-  console.log(`[SystemCmd] 打开网页 ${label}:`, url)
-  if (!url) {
-    return { success: false, error: '缺少网页地址' }
-  }
-  await shell.openExternal(url)
-  ctx.mainWindow?.webContents.send('app-launched')
-  ctx.mainWindow?.hide()
-  return { success: true }
-}
-
 async function handleScreenshot(ctx: SystemCommandContext): Promise<any> {
   console.log('[SystemCmd] 执行截图')
 

@@ -451,6 +451,16 @@ export class InternalPluginAPI {
     })
 
     ipcMain.handle(
+      'internal:delete-plugin-doc',
+      async (event, pluginName: string, docKey: string) => {
+        if (!requireInternalPlugin(this.pluginManager, event)) {
+          throw new PermissionDeniedError('internal:delete-plugin-doc')
+        }
+        return await databaseAPI.deletePluginDoc(pluginName, docKey)
+      }
+    )
+
+    ipcMain.handle(
       'internal:export-plugin-doc',
       async (event, pluginName: string, docKey: string) => {
         if (!requireInternalPlugin(this.pluginManager, event)) {
