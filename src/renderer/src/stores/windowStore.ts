@@ -39,7 +39,7 @@ export type AutoClearOption = 'immediately' | '1m' | '2m' | '3m' | '5m' | '10m' 
 // 搜索框模式选项
 export type SearchMode = 'aggregate' | 'list'
 export type TabKeyFunction = 'navigate' | 'target-command'
-export type BuiltInShortcutKey = 'search' | 'closePlugin' | 'killPlugin'
+export type BuiltInShortcutKey = 'search' | 'closePlugin' | 'killPlugin' | 'esc'
 
 // 更新下载状态
 interface UpdateDownloadInfo {
@@ -70,6 +70,7 @@ export const useWindowStore = defineStore('window', () => {
   const builtInSearchShortcutEnabled = ref(true)
   const builtInClosePluginShortcutEnabled = ref(true)
   const builtInKillPluginShortcutEnabled = ref(true)
+  const builtInEscShortcutEnabled = ref(true)
 
   // 悬浮球双击目标指令
   const floatingBallDoubleClickCommand = ref('')
@@ -232,7 +233,11 @@ export const useWindowStore = defineStore('window', () => {
       builtInClosePluginShortcutEnabled.value = value
       return
     }
-    builtInKillPluginShortcutEnabled.value = value
+    if (key === 'killPlugin') {
+      builtInKillPluginShortcutEnabled.value = value
+      return
+    }
+    builtInEscShortcutEnabled.value = value
   }
 
   function updateFloatingBallDoubleClickCommand(value: string): void {
@@ -569,6 +574,7 @@ export const useWindowStore = defineStore('window', () => {
           builtInSearchShortcutEnabled.value = config.search !== false
           builtInClosePluginShortcutEnabled.value = config.closePlugin !== false
           builtInKillPluginShortcutEnabled.value = config.killPlugin !== false
+          builtInEscShortcutEnabled.value = config.esc !== false
         }
       } else {
         // 默认蓝色
@@ -632,6 +638,7 @@ export const useWindowStore = defineStore('window', () => {
     builtInSearchShortcutEnabled,
     builtInClosePluginShortcutEnabled,
     builtInKillPluginShortcutEnabled,
+    builtInEscShortcutEnabled,
     updateBuiltInShortcutEnabled,
     floatingBallDoubleClickCommand,
     updateFloatingBallDoubleClickCommand,

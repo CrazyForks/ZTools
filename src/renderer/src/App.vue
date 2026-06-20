@@ -473,6 +473,10 @@ async function handleKeydown(event: KeyboardEvent): Promise<void> {
 
   // Escape 键特殊处理
   if (event.key === 'Escape') {
+    if (!windowStore.builtInEscShortcutEnabled) {
+      return
+    }
+
     event.preventDefault()
 
     if (currentView.value === ViewMode.Plugin) {
