@@ -276,9 +276,10 @@ async function handleInvalidItemDelete(): Promise<void> {
   } catch (err) {
     console.error('删除失败:', err)
     error('删除失败')
+  } finally {
+    await loadShortcuts()
+    isDeleting.value = false
   }
-  await loadShortcuts()
-  isDeleting.value = false
 }
 
 // 获取类型标签
