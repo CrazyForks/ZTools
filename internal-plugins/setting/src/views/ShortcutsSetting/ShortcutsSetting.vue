@@ -32,7 +32,7 @@ interface GlobalShortcut {
   autoCopy?: boolean
 }
 
-type BuiltInShortcutKey = 'search' | 'closePlugin' | 'killPlugin'
+type BuiltInShortcutKey = 'search' | 'closePlugin' | 'killPlugin' | 'esc'
 
 type BuiltInShortcutConfig = Record<BuiltInShortcutKey, boolean>
 
@@ -49,7 +49,8 @@ interface AliasRow {
 const DEFAULT_BUILTIN_SHORTCUTS_ENABLED: BuiltInShortcutConfig = {
   search: true,
   closePlugin: true,
-  killPlugin: true
+  killPlugin: true,
+  esc: true
 }
 
 // 获取平台信息
@@ -99,6 +100,14 @@ const baseBuiltInShortcuts: GlobalShortcut[] = [
     enabled: true,
     configurable: true,
     configKey: 'closePlugin'
+  },
+  {
+    id: 'builtin-esc',
+    shortcut: 'ESC',
+    target: '清空输入/退出插件/隐藏窗口',
+    enabled: true,
+    configurable: true,
+    configKey: 'esc'
   },
   {
     id: 'builtin-devtools',
