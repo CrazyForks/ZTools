@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const { mockDbGet, mockSpawn, mockExec } = vi.hoisted(() => ({
+const { mockDbGet, mockSpawn, mockExecFile } = vi.hoisted(() => ({
   mockDbGet: vi.fn(),
   mockSpawn: vi.fn(),
-  mockExec: vi.fn((...args: unknown[]) => {
+  mockExecFile: vi.fn((...args: unknown[]) => {
     const cb = args[args.length - 1]
     if (typeof cb === 'function') cb(null, { stdout: '', stderr: '' })
   })
 }))
 
-vi.mock('child_process', () => ({ spawn: mockSpawn, exec: mockExec }))
+vi.mock('child_process', () => ({ spawn: mockSpawn, execFile: mockExecFile }))
 vi.mock('../../src/main/api/shared/database', () => ({
   default: { dbGet: mockDbGet, dbPut: vi.fn() }
 }))
@@ -21,7 +21,8 @@ import {
   parseCustomCommand,
   openInTerminal,
   escapePowerShellPath,
-  escapeCmdPath
+  escapeCmdPath,
+  escapeAppleScriptString
 } from '../../src/main/utils/terminalLauncher'
 
 // ========== getPresetOptions ==========
@@ -142,6 +143,15 @@ describe('escapeCmdPath', () => {
   })
 })
 
+describe('escapeAppleScriptString', () => {
+  it('转义反斜杠和双引号', () => {
+    expect(escapeAppleScriptString('a"b\\c')).toBe('a\\"b\\\\c')
+  })
+  it('无特殊字符保持不变', () => {
+    expect(escapeAppleScriptString('/Users/x')).toBe('/Users/x')
+  })
+})
+
 // ========== openInTerminal 编排分发 ==========
 
 describe('openInTerminal 编排分发', () => {
@@ -187,8 +197,12 @@ describe('openInTerminal 编排分发', () => {
     const ok = await openInTerminal('/x')
     expect(ok).toBe(true)
     expect(mockSpawn).not.toHaveBeenCalled()
-    expect(mockExec).toHaveBeenCalled()
-    // execAsync(`osascript -e '${escaped}'`) → exec(cmd, callback)，cmd 内含 folderPath
-    expect(mockExec).toHaveBeenCalledWith(expect.stringContaining('/x'), expect.anything())
+    expect(mockExecFile).toHaveBeenCalled()
+    // execFileAsync('osascript', ['-e', script]) → execFile(cmd, args, callback)
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'osascript',
+      expect.arrayContaining([expect.stringContaining('/x')]),
+      expect.anything()
+    )
   })
 })

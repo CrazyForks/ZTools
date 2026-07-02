@@ -1,8 +1,8 @@
-import { exec, spawn } from 'child_process'
+import { spawn, execFile } from 'child_process'
 import { promisify } from 'util'
 import databaseAPI from '../api/shared/database'
 
-const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
 // ==================== 类型 ====================
 
@@ -36,10 +36,15 @@ export function escapeCmdPath(folderPath: string): string {
   return `"${escaped}"`
 }
 
+/** 转义路径中的反斜杠和双引号，安全嵌入 AppleScript 双引号字符串 */
+export function escapeAppleScriptString(s: string): string {
+  return s.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
+}
+
 // ==================== 命令字符串解析（内联，避免耦合 commandLauncher）====================
 
 /** 将命令字符串拆分为 [可执行文件, 参数列表]，处理引号 */
-function parseCommandString(cmd: string): [string, string[]] {
+function parseCommandString(cmd: string): [string | undefined, string[]] {
   const parts: string[] = []
   let current = ''
   let inQuote: string | null = null
@@ -68,10 +73,9 @@ function parseCommandString(cmd: string): [string, string[]] {
 
 // ==================== 执行原语 ====================
 
-/** 执行 AppleScript（转义单引号，防止 shell 注入） */
+/** 执行 AppleScript：直接调用 osascript（不经 shell），避免 shell 注入 */
 async function runAppleScript(script: string): Promise<void> {
-  const escaped = script.replace(/'/g, "'\\''")
-  await execAsync(`osascript -e '${escaped}'`)
+  await execFileAsync('osascript', ['-e', script])
 }
 
 /** detached 启动 CLI 命令，返回是否成功拿到 pid */
@@ -118,12 +122,15 @@ const MAC_PRESETS: PresetEntry[] = [
     label: '系统默认 (Terminal)',
     preset: {
       type: 'applescript',
-      build: (p) => `
+      build: (p) => {
+        const safePath = escapeAppleScriptString(p)
+        return `
     tell application "Terminal"
       activate
-      do script "cd " & quoted form of "${p}"
+      do script "cd " & quoted form of "${safePath}"
     end tell
   `
+      }
     }
   },
   {
@@ -140,14 +147,17 @@ const MAC_PRESETS: PresetEntry[] = [
     label: 'iTerm2',
     preset: {
       type: 'applescript',
-      build: (p) => `
+      build: (p) => {
+        const safePath = escapeAppleScriptString(p)
+        return `
     tell application "iTerm"
       activate
       tell (create window with default profile)
-        write session "cd " & quoted form of "${p}"
+        write session "cd " & quoted form of "${safePath}"
       end tell
     end tell
   `
+      }
     }
   }
 ]
@@ -268,13 +278,13 @@ export async function openInTerminal(folderPath: string): Promise<boolean> {
     if (terminal === 'custom') {
       const parsed = parseCustomCommand(customCommand ?? '')
       if (parsed) {
-        return runCli(parsed.command, applyPathToArgs(parsed.args, folderPath))
+        return await runCli(parsed.command, applyPathToArgs(parsed.args, folderPath))
       }
       // 自定义命令为空 → 回退默认
-      return executePreset(resolvePreset('default', process.platform), folderPath)
+      return await executePreset(resolvePreset('default', process.platform), folderPath)
     }
 
-    return executePreset(resolvePreset(terminal, process.platform), folderPath)
+    return await executePreset(resolvePreset(terminal, process.platform), folderPath)
   } catch (error) {
     console.error('[TerminalLauncher] 打开终端失败:', error)
     return false
