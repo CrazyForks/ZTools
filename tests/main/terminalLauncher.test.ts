@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const { mockDbGet, mockSpawn, mockExec } = vi.hoisted(() => ({
   mockDbGet: vi.fn(),
@@ -145,9 +145,16 @@ describe('escapeCmdPath', () => {
 // ========== openInTerminal 编排分发 ==========
 
 describe('openInTerminal 编排分发', () => {
+  let originalPlatform: string
   beforeEach(() => {
     vi.clearAllMocks()
     mockSpawn.mockImplementation(() => ({ pid: 12345, unref: vi.fn(), on: vi.fn() }))
+    // stub 为 darwin：使默认预设确定性走 AppleScript 路径（不 spawn），与宿主 OS 无关
+    originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+  })
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
   })
 
   it('预设 ghostty → spawn open 并替换 {path}', async () => {
@@ -181,5 +188,7 @@ describe('openInTerminal 编排分发', () => {
     expect(ok).toBe(true)
     expect(mockSpawn).not.toHaveBeenCalled()
     expect(mockExec).toHaveBeenCalled()
+    // execAsync(`osascript -e '${escaped}'`) → exec(cmd, callback)，cmd 内含 folderPath
+    expect(mockExec).toHaveBeenCalledWith(expect.stringContaining('/x'), expect.anything())
   })
 })
