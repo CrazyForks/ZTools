@@ -173,6 +173,23 @@ declare global {
         }) => void
       ) => void
       openPluginDevTools: () => Promise<{ success: boolean; error?: string }>
+      // 快捷键相关
+      updateShortcut: (shortcut: string) => Promise<{ success: boolean; error?: string }>
+      getCurrentShortcut: () => Promise<string>
+      registerGlobalShortcut: (
+        shortcut: string,
+        target: string,
+        autoCopy?: boolean,
+        preScreenshotOptimization?: boolean
+      ) => Promise<{ success: boolean; error?: string }>
+      unregisterGlobalShortcut: (shortcut: string) => Promise<{ success: boolean; error?: string }>
+      updateGlobalShortcutConfig: (
+        shortcut: string,
+        config: { autoCopy: boolean; preScreenshotOptimization: boolean }
+      ) => Promise<{ success: boolean; error?: string }>
+      // 快捷键录制（临时注册，触发后自动注销）
+      startHotkeyRecording: () => Promise<{ success: boolean; error?: string }>
+      onHotkeyRecorded: (callback: (shortcut: string) => void) => void
       // 数据库相关
       dbPut: (key: string, data: any) => Promise<any>
       dbGet: (key: string) => Promise<any>

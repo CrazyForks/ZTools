@@ -239,6 +239,33 @@ const api = {
   },
   openPluginDevTools: () => ipcRenderer.invoke('open-plugin-devtools'),
   detachPlugin: () => ipcRenderer.invoke('detach-plugin'),
+  // 快捷键相关
+  updateShortcut: (shortcut: string) => ipcRenderer.invoke('update-shortcut', shortcut),
+  getCurrentShortcut: () => ipcRenderer.invoke('get-current-shortcut'),
+  registerGlobalShortcut: (
+    shortcut: string,
+    target: string,
+    autoCopy?: boolean,
+    preScreenshotOptimization?: boolean
+  ) =>
+    ipcRenderer.invoke(
+      'register-global-shortcut',
+      shortcut,
+      target,
+      autoCopy,
+      preScreenshotOptimization
+    ),
+  unregisterGlobalShortcut: (shortcut: string) =>
+    ipcRenderer.invoke('unregister-global-shortcut', shortcut),
+  updateGlobalShortcutConfig: (
+    shortcut: string,
+    config: { autoCopy: boolean; preScreenshotOptimization: boolean }
+  ) => ipcRenderer.invoke('update-global-shortcut-config', shortcut, config),
+  // 快捷键录制（临时注册，触发后自动注销）
+  startHotkeyRecording: () => ipcRenderer.invoke('start-hotkey-recording'),
+  onHotkeyRecorded: (callback: (shortcut: string) => void) => {
+    ipcRenderer.on('hotkey-recorded', (_event, shortcut) => callback(shortcut))
+  },
   // 子输入框相关
   notifySubInputChange: (text: string) => ipcRenderer.send('notify-sub-input-change', text),
   setSubInputValue: (text: string) => ipcRenderer.invoke('set-sub-input-value', text),
@@ -553,6 +580,20 @@ declare global {
       onFocusSubInput: (callback: () => void) => void
       openPluginDevTools: () => Promise<{ success: boolean; error?: string }>
       detachPlugin: () => Promise<{ success: boolean; error?: string }>
+      // 快捷键相关
+      updateShortcut: (shortcut: string) => Promise<{ success: boolean; error?: string }>
+      getCurrentShortcut: () => Promise<string>
+      registerGlobalShortcut: (
+        shortcut: string,
+        target: string,
+        autoCopy?: boolean,
+        preScreenshotOptimization?: boolean
+      ) => Promise<{ success: boolean; error?: string }>
+      unregisterGlobalShortcut: (shortcut: string) => Promise<{ success: boolean; error?: string }>
+      updateGlobalShortcutConfig: (
+        shortcut: string,
+        config: { autoCopy: boolean; preScreenshotOptimization: boolean }
+      ) => Promise<{ success: boolean; error?: string }>
       // 窗口相关
       windowPaste: () => Promise<{ success: boolean; error?: string }>
       // 子输入框相关
