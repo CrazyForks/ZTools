@@ -4,6 +4,7 @@ import { createWriteStream } from 'fs'
 import { promises as fs } from 'fs'
 import AdmZip from 'adm-zip'
 import ffmpegDownloadHtml from '../../../resources/ffmpeg.html?asset'
+import { getExtendsPath } from './appData/appDataPaths'
 
 class FFmpegManager {
   private downloadWindow: BrowserWindow | null = null
@@ -32,7 +33,7 @@ class FFmpegManager {
    */
   private resolveFFmpegPath(): string {
     const ext = process.platform === 'win32' ? '.exe' : ''
-    return path.join(app.getPath('userData'), 'extends', `ffmpeg${ext}`)
+    return path.join(getExtendsPath(), `ffmpeg${ext}`)
   }
 
   private getDownloadUrl(): string {

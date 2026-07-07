@@ -12,9 +12,11 @@ import { httpGet } from '../../utils/httpRequest.js'
 import { sleep } from '../../utils/common.js'
 import databaseAPI from '../shared/database'
 import { openDialog } from '../../utils/windowUtils'
+import { getPluginMarketApiBase, requestPluginMarket } from './pluginMarketConfig'
+import { getPluginsPath } from '../../core/appData/appDataPaths'
 
 /** 插件的本地安装目录 */
-const PLUGIN_DIR = path.join(app.getPath('userData'), 'plugins')
+const PLUGIN_DIR = getPluginsPath()
 const MARKET_DOWNLOAD_PROGRESS_CHANNEL = 'plugin-market-download-progress'
 
 type MarketDownloadStatus = 'downloading' | 'installing' | 'success' | 'error' | 'cancelled'
@@ -233,8 +235,8 @@ export class PluginInstallerAPI {
 
   /**
    * 从插件市场安装插件。
-   * 流程：下载 .zpx 文件（最多重试 3 次）→ 自动检测 ZPX/ZIP 格式 → 安装 → 清理临时文件。
-   * @param plugin - 市场插件对象，必须包含 name 和 downloadUrl 字段
+   * 流程：调用市场下载接口获取下载地址 → 下载 .zpx 文件（最多重试 3 次）→ 自动检测 ZPX/ZIP 格式 → 安装 → 清理临时文件。
+   * @param plugin - 市场插件对象，必须包含 name 字段
    * @returns {success: boolean, plugin?: object, error?: string}
    */
   public async installPluginFromMarket(plugin: any, webContents?: WebContents): Promise<any> {
@@ -263,7 +265,7 @@ export class PluginInstallerAPI {
 
     try {
       console.log('[Plugins] 开始从市场安装插件:', pluginName)
-      const downloadUrl = plugin.downloadUrl
+      const downloadUrl = await this.resolveMarketDownloadUrl(plugin)
       if (!downloadUrl) {
         return { success: false, error: '无效的下载链接' }
       }
@@ -397,6 +399,24 @@ export class PluginInstallerAPI {
 
     task.controller.abort()
     return { success: true }
+  }
+
+  private async resolveMarketDownloadUrl(plugin: any): Promise<string> {
+    const pluginName = typeof plugin?.name === 'string' ? plugin.name : ''
+    if (!pluginName) {
+      return ''
+    }
+
+    const marketApiBase = getPluginMarketApiBase()
+    const response = await requestPluginMarket(
+      `${marketApiBase}/plugins/download?name=${encodeURIComponent(pluginName)}`
+    )
+    const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
+    if (typeof data?.downloadUrl === 'string' && data.downloadUrl.trim()) {
+      return data.downloadUrl.trim()
+    }
+
+    return ''
   }
 
   /**

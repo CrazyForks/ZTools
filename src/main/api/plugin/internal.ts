@@ -397,6 +397,53 @@ export class InternalPluginAPI {
       return await pluginsAPI.market.fetchPluginMarket()
     })
 
+    ipcMain.handle(
+      'internal:fetch-plugin-market-recommendations',
+      async (event, limit?: number) => {
+        if (!requireInternalPlugin(this.pluginManager, event)) {
+          throw new PermissionDeniedError('internal:fetch-plugin-market-recommendations')
+        }
+        return await pluginsAPI.market.fetchPluginMarketRecommendations(limit)
+      }
+    )
+
+    ipcMain.handle(
+      'internal:fetch-plugin-market-comments',
+      async (event, pluginName: string, page?: number, pageSize?: number) => {
+        if (!requireInternalPlugin(this.pluginManager, event)) {
+          throw new PermissionDeniedError('internal:fetch-plugin-market-comments')
+        }
+        return await pluginsAPI.market.fetchComments(pluginName, page, pageSize)
+      }
+    )
+
+    ipcMain.handle(
+      'internal:create-plugin-market-comment',
+      async (event, input: { pluginName: string; content: string; parentId?: number | null }) => {
+        if (!requireInternalPlugin(this.pluginManager, event)) {
+          throw new PermissionDeniedError('internal:create-plugin-market-comment')
+        }
+        return await pluginsAPI.market.createComment(input)
+      }
+    )
+
+    ipcMain.handle(
+      'internal:toggle-plugin-market-comment-like',
+      async (event, commentId: number) => {
+        if (!requireInternalPlugin(this.pluginManager, event)) {
+          throw new PermissionDeniedError('internal:toggle-plugin-market-comment-like')
+        }
+        return await pluginsAPI.market.toggleCommentLike(commentId)
+      }
+    )
+
+    ipcMain.handle('internal:delete-plugin-market-comment', async (event, commentId: number) => {
+      if (!requireInternalPlugin(this.pluginManager, event)) {
+        throw new PermissionDeniedError('internal:delete-plugin-market-comment')
+      }
+      return await pluginsAPI.market.deleteComment(commentId)
+    })
+
     ipcMain.handle('internal:install-plugin-from-market', async (event, plugin: any) => {
       if (!requireInternalPlugin(this.pluginManager, event)) {
         throw new PermissionDeniedError('internal:install-plugin-from-market')
@@ -754,6 +801,13 @@ export class InternalPluginAPI {
         throw new PermissionDeniedError('internal:select-avatar')
       }
       return await systemAPI.selectAvatar()
+    })
+
+    ipcMain.handle('internal:select-image-file', async (event) => {
+      if (!requireInternalPlugin(this.pluginManager, event)) {
+        throw new PermissionDeniedError('internal:select-image-file')
+      }
+      return await systemAPI.selectImageFile()
     })
 
     ipcMain.handle('internal:set-theme', async (event, theme: string) => {

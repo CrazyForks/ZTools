@@ -232,10 +232,6 @@ const customInternalApiPluginNames = ref<string[]>([])
 const proxyEnabled = ref(false)
 const proxyUrl = ref('')
 
-// 插件市场配置
-const pluginMarketCustom = ref(false)
-const pluginMarketUrl = ref('')
-
 // 窗口材质设置
 const windowMaterial = ref<'mica' | 'acrylic' | 'none'>('none')
 
@@ -1064,34 +1060,6 @@ async function handleProxyUrlChange(): Promise<void> {
   }
 }
 
-// 处理插件市场开关变化
-async function handlePluginMarketCustomChange(): Promise<void> {
-  try {
-    await saveSettings()
-    console.log('插件市场自定义开关已更新:', pluginMarketCustom.value)
-    info(pluginMarketCustom.value ? '自定义插件市场已启用' : '已恢复默认插件市场')
-  } catch (err) {
-    console.error('更新插件市场配置失败:', err)
-    pluginMarketCustom.value = !pluginMarketCustom.value
-  }
-}
-
-// 处理插件市场地址变化
-async function handlePluginMarketUrlChange(): Promise<void> {
-  try {
-    if (pluginMarketUrl.value && !pluginMarketUrl.value.startsWith('http')) {
-      error('市场地址必须以 http:// 或 https:// 开头')
-      return
-    }
-    await saveSettings()
-    console.log('插件市场地址已更新:', pluginMarketUrl.value)
-    info('插件市场地址已更新')
-  } catch (err: any) {
-    console.error('更新插件市场地址失败:', err)
-    error(`更新插件市场地址失败: ${err.message || '未知错误'}`)
-  }
-}
-
 async function handleAddCustomInternalApiPluginName(): Promise<void> {
   const pluginName = customInternalApiPluginNameInput.value.trim()
   if (!pluginName) {
@@ -1216,10 +1184,6 @@ async function loadSettings(): Promise<void> {
       proxyEnabled.value = data.proxyEnabled ?? false
       proxyUrl.value = data.proxyUrl ?? ''
 
-      // 插件市场配置
-      pluginMarketCustom.value = data.pluginMarketCustom ?? false
-      pluginMarketUrl.value = data.pluginMarketUrl ?? ''
-
       // 悬浮球配置
       floatingBallEnabled.value = data.floatingBallEnabled ?? false
       floatingBallLetter.value = data.floatingBallLetter || 'Z'
@@ -1295,8 +1259,6 @@ async function saveSettings(): Promise<void> {
       customInternalApiPluginNames: [...customInternalApiPluginNames.value],
       proxyEnabled: proxyEnabled.value,
       proxyUrl: proxyUrl.value,
-      pluginMarketCustom: pluginMarketCustom.value,
-      pluginMarketUrl: pluginMarketUrl.value,
       autoCheckUpdate: autoCheckUpdate.value,
       clipboardRetentionDays: clipboardRetentionDays.value
     })
@@ -2132,40 +2094,6 @@ onUnmounted(() => {
             placeholder="例如: http://127.0.0.1:7890"
             @blur="handleProxyUrlChange"
             @keyup.enter="handleProxyUrlChange"
-          />
-        </div>
-      </div>
-
-      <div class="setting-item">
-        <div class="setting-label">
-          <span>自定义插件市场</span>
-          <span class="setting-desc">配置自定义插件市场地址</span>
-        </div>
-        <div class="setting-control">
-          <label class="toggle">
-            <input
-              v-model="pluginMarketCustom"
-              type="checkbox"
-              @change="handlePluginMarketCustomChange"
-            />
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-      </div>
-
-      <div v-if="pluginMarketCustom" class="setting-item">
-        <div class="setting-label">
-          <span>市场地址</span>
-          <span class="setting-desc">自定义插件市场的基础 URL</span>
-        </div>
-        <div class="setting-control">
-          <input
-            v-model="pluginMarketUrl"
-            type="text"
-            class="input"
-            placeholder="例如: https://market.example.com"
-            @blur="handlePluginMarketUrlChange"
-            @keyup.enter="handlePluginMarketUrlChange"
           />
         </div>
       </div>

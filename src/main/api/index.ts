@@ -13,6 +13,7 @@ import appsAPI from './renderer/commands'
 import localShortcutsAPI from './renderer/localShortcuts'
 import pluginsAPI from './renderer/plugins'
 import settingsAPI from './renderer/settings'
+import storageAPI from './renderer/storage'
 import syncAPI from './renderer/sync'
 import systemAPI from './renderer/system'
 import { systemSettingsAPI } from './renderer/systemSettings'
@@ -107,11 +108,13 @@ class APIManager {
     appsAPI.init(mainWindow, pluginManager)
     appsAPI.setShowWindowCallback(() => windowManager.showWindow())
     pluginsAPI.init(mainWindow, pluginManager)
+    pluginsAPI.setCommandsCacheInvalidator(() => appsAPI.invalidateCommandsCache(false))
     windowAPI.init(mainWindow)
     settingsAPI.init(mainWindow, pluginManager)
+    storageAPI.init()
     systemAPI.init(mainWindow)
     systemSettingsAPI.init()
-    syncAPI.init(mainWindow)
+    syncAPI.init(mainWindow, pluginManager)
     localShortcutsAPI.init(mainWindow)
 
     // 初始化插件 API 统一分发器（必须在插件 API 初始化之前）
@@ -141,6 +144,7 @@ class APIManager {
     pluginShellAPI.init(clipboardManager)
     pluginRedirectAPI.init(mainWindow, pluginManager)
     pluginFeatureAPI.init(pluginManager)
+    pluginFeatureAPI.setCommandsCacheInvalidator(() => appsAPI.invalidateCommandsCache(false))
     pluginHttpAPI.init(pluginManager)
     pluginToastAPI.init(pluginManager)
     pluginFFmpegAPI.init()

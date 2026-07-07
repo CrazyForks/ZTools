@@ -5,9 +5,10 @@ import { pathToFileURL } from 'url'
 import clipboardManager from '../../managers/clipboardManager'
 import appleScriptHelper from '../../utils/appleScriptHelper'
 import { isWindows11, openDialog } from '../../utils/windowUtils'
+import { getAvatarPath } from '../../core/appData/appDataPaths'
 
 // 头像目录
-const AVATAR_DIR = path.join(app.getPath('userData'), 'avatar')
+const AVATAR_DIR = getAvatarPath()
 
 /**
  * 系统集成API - 主程序专用
@@ -44,6 +45,7 @@ export class SystemAPI {
       this.showContextMenu(event, menuItems)
     )
     ipcMain.handle('select-avatar', () => this.selectAvatar())
+    ipcMain.handle('select-image-file', () => this.selectImageFile())
 
     // App Info
     ipcMain.handle('get-app-version', () => app.getVersion())
@@ -235,6 +237,28 @@ export class SystemAPI {
       return { success: true, path: pathToFileURL(avatarPath).href }
     } catch (error: unknown) {
       console.error('[System] 选择头像失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : '未知错误' }
+    }
+  }
+
+  public async selectImageFile(): Promise<any> {
+    try {
+      const result = await openDialog(
+        this.mainWindow!,
+        {
+          title: '选择图片',
+          filters: [{ name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] }],
+          properties: ['openFile']
+        },
+        '未选择文件'
+      )
+      if (!result.success) {
+        return result
+      }
+      const filePath = result.data!.filePaths[0]
+      return { success: true, path: filePath, url: pathToFileURL(filePath).href }
+    } catch (error: unknown) {
+      console.error('[System] 选择图片失败:', error)
       return { success: false, error: error instanceof Error ? error.message : '未知错误' }
     }
   }

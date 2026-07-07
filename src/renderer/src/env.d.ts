@@ -66,13 +66,8 @@ declare global {
       getWindowPosition: () => Promise<{ x: number; y: number }>
       setWindowPosition: (x: number, y: number) => void
       setWindowSizeLock: (lock: boolean) => void
-      setWindowOpacity: (opacity: number) => void
       getWindowMaterial: () => Promise<'mica' | 'acrylic' | 'none'>
-      setTrayIconVisible: (visible: boolean) => Promise<void>
       setWindowMaterial: (material: 'mica' | 'acrylic' | 'none') => Promise<{ success: boolean }>
-      setLaunchAtLogin: (enable: boolean) => Promise<void>
-      getLaunchAtLogin: () => Promise<boolean>
-      setTheme: (theme: string) => Promise<void>
       openExternal: (url: string) => Promise<void>
       copyToClipboard: (text: string) => Promise<void>
       openTerminal: (path: string) => Promise<void>
@@ -94,54 +89,8 @@ declare global {
       ) => Promise<{ success: boolean; error?: string }>
       revealInFinder: (filePath: string) => Promise<void>
       showContextMenu: (menuItems: any[]) => Promise<void>
-      getPlugins: () => Promise<any[]>
       getAllPlugins: () => Promise<any[]>
       getDisabledPlugins: () => Promise<string[]>
-      setPluginDisabled: (
-        pluginPath: string,
-        disabled: boolean
-      ) => Promise<{ success: boolean; error?: string }>
-      importPlugin: () => Promise<{ success: boolean; error?: string }>
-      // 导入开发中的插件工程，可选直接传入 plugin.json 路径
-      importDevPlugin: (pluginJsonPath?: string) => Promise<{ success: boolean; error?: string }>
-      removeDevProject: (pluginName: string) => Promise<{ success: boolean; error?: string }>
-      fetchPluginMarket: () => Promise<{
-        success: boolean
-        data?: any
-        storefront?: any
-        error?: string
-      }>
-      installPluginFromMarket: (plugin: any) => Promise<{
-        success: boolean
-        error?: string
-        plugin?: any
-        cancelled?: boolean
-      }>
-      cancelPluginMarketDownload: (
-        pluginNameOrTaskId: string
-      ) => Promise<{ success: boolean; error?: string }>
-      onPluginMarketDownloadProgress: (callback: (payload: any) => void) => () => void
-      installPluginFromNpm: (options: {
-        packageName: string
-        useChinaMirror?: boolean
-      }) => Promise<{
-        success: boolean
-        error?: string
-        plugin?: any
-      }>
-      getPluginReadme: (pluginPath: string) => Promise<{
-        success: boolean
-        content?: string
-        error?: string
-      }>
-      getPluginDbData: (pluginName: string) => Promise<{
-        success: boolean
-        data?: Array<{ id: string; data: any; rev?: string; updatedAt?: string }>
-        error?: string
-      }>
-      deletePlugin: (pluginPath: string) => Promise<{ success: boolean; error?: string }>
-      getRunningPlugins: () => Promise<string[]>
-      killPlugin: (pluginPath: string) => Promise<{ success: boolean; error?: string }>
       killPluginAndReturn: (pluginPath: string) => Promise<{ success: boolean; error?: string }>
       // mainPush 功能
       queryMainPush: (
@@ -164,7 +113,6 @@ declare global {
         button?: 'left' | 'right' | 'middle'
         clickCount?: number
       }) => Promise<{ success: boolean; error?: string }>
-      selectAvatar: () => Promise<{ success: boolean; path?: string; error?: string }>
       // 历史记录管理
       removeFromHistory: (appPath: string, featureCode?: string, name?: string) => Promise<void>
       // 固定应用管理
@@ -225,60 +173,12 @@ declare global {
         }) => void
       ) => void
       openPluginDevTools: () => Promise<{ success: boolean; error?: string }>
-      // 快捷键相关
-      updateShortcut: (shortcut: string) => Promise<{ success: boolean; error?: string }>
-      getCurrentShortcut: () => Promise<string>
-      registerGlobalShortcut: (
-        shortcut: string,
-        target: string,
-        autoCopy?: boolean
-      ) => Promise<{ success: boolean; error?: string }>
-      unregisterGlobalShortcut: (shortcut: string) => Promise<{ success: boolean; error?: string }>
-      updateGlobalShortcutConfig: (
-        shortcut: string,
-        config: { autoCopy: boolean }
-      ) => Promise<{ success: boolean; error?: string }>
-      // 快捷键录制（临时注册，触发后自动注销）
-      startHotkeyRecording: () => Promise<{ success: boolean; error?: string }>
-      onHotkeyRecorded: (callback: (shortcut: string) => void) => void
       // 数据库相关
       dbPut: (key: string, data: any) => Promise<any>
       dbGet: (key: string) => Promise<any>
       dbRemove: (bucket: string, doc: any) => Promise<any>
       dbBulkDocs: (bucket: string, docs: any[]) => Promise<any>
       dbAllDocs: (bucket: string, key: string | string[]) => Promise<any>
-      // 插件数据管理
-      getPluginDataStats: () => Promise<{
-        success: boolean
-        data?: Array<{
-          pluginName: string
-          pluginTitle?: string | null
-          isDevelopment: boolean
-          docCount: number
-          attachmentCount: number
-          logo: string | null
-        }>
-        error?: string
-      }>
-      getPluginDocKeys: (pluginName: string) => Promise<{
-        success: boolean
-        data?: Array<{ key: string; type: 'document' | 'attachment' }>
-        error?: string
-      }>
-      getPluginDoc: (
-        pluginName: string,
-        key: string
-      ) => Promise<{
-        success: boolean
-        data?: any
-        type?: 'document' | 'attachment'
-        error?: string
-      }>
-      clearPluginData: (pluginName: string) => Promise<{
-        success: boolean
-        deletedCount?: number
-        error?: string
-      }>
       // 窗口相关
       windowPaste: () => Promise<{ success: boolean; error?: string }>
       onWindowInfoChanged: (
@@ -358,10 +258,7 @@ declare global {
       ) => void
       onUpdateDownloadStart: (callback: (data: { version: string }) => void) => void
       onUpdateDownloadFailed: (callback: (data: { error: string }) => void) => void
-      getAppVersion: () => Promise<string>
-      getSystemVersions: () => Promise<NodeJS.ProcessVersions>
       getPlatform: () => string
-      isWindows11: () => Promise<boolean>
       // 上次匹配状态管理
       getLastMatchState: () => Promise<LastMatchState | null>
       restoreLastMatch: () => Promise<LastMatchState | null>

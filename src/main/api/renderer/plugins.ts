@@ -8,12 +8,12 @@ import { isBundledInternalPlugin } from '../../core/internalPlugins'
 import lmdbInstance from '../../core/lmdb/lmdbInstance'
 import providerManager from '../../core/provider/providerManager'
 import windowManager from '../../managers/windowManager'
-import { httpGet } from '../../utils/httpRequest.js'
 import { pluginFeatureAPI } from '../plugin/feature'
 import databaseAPI from '../shared/database'
 import { PluginDevProjectsAPI } from './pluginDevProjects'
 import { PluginInstallerAPI } from './pluginInstaller'
 import { PluginMarketAPI } from './pluginMarket'
+import { requestPluginMarket } from './pluginMarketConfig'
 import {
   getPluginDataPrefix,
   isDevelopmentPluginName
@@ -44,6 +44,7 @@ export class PluginsAPI {
   private mainWindow: Electron.BrowserWindow | null = null
   private pluginManager: PluginManager | null = null
   private disabledPluginPathSet: Set<string> | null = null
+  private commandsCacheInvalidator: (() => void) | null = null
   public devProjects!: PluginDevProjectsAPI
   public installer!: PluginInstallerAPI
   public market!: PluginMarketAPI
@@ -83,6 +84,10 @@ export class PluginsAPI {
       validatePluginConfig: (config, existing) => this.validatePluginConfig(config, existing)
     })
     this.setupIPC()
+  }
+
+  public setCommandsCacheInvalidator(invalidator: () => void): void {
+    this.commandsCacheInvalidator = invalidator
   }
 
   private setupIPC(): void {
@@ -132,6 +137,25 @@ export class PluginsAPI {
       this.killPluginAndReturn(pluginPath)
     )
     ipcMain.handle('fetch-plugin-market', () => this.market.fetchPluginMarket())
+    ipcMain.handle('fetch-plugin-market-recommendations', (_event, limit?: number) =>
+      this.market.fetchPluginMarketRecommendations(limit)
+    )
+    ipcMain.handle(
+      'fetch-plugin-market-comments',
+      (_event, pluginName: string, page?: number, pageSize?: number) =>
+        this.market.fetchComments(pluginName, page, pageSize)
+    )
+    ipcMain.handle(
+      'create-plugin-market-comment',
+      (_event, input: { pluginName: string; content: string; parentId?: number | null }) =>
+        this.market.createComment(input)
+    )
+    ipcMain.handle('toggle-plugin-market-comment-like', (_event, commentId: number) =>
+      this.market.toggleCommentLike(commentId)
+    )
+    ipcMain.handle('delete-plugin-market-comment', (_event, commentId: number) =>
+      this.market.deleteComment(commentId)
+    )
     ipcMain.handle('install-plugin-from-market', (event, plugin: any) =>
       this.installer.installPluginFromMarket(plugin, event.sender)
     )
@@ -290,6 +314,7 @@ export class PluginsAPI {
         this.pluginManager.killPlugin(pluginPath)
       }
 
+      this.commandsCacheInvalidator?.()
       this.mainWindow?.webContents.send('plugins-changed')
       this.mainWindow?.webContents.send('super-panel-pinned-changed')
       return { success: true }
@@ -342,6 +367,7 @@ export class PluginsAPI {
   }
 
   private notifyPluginsChanged(): void {
+    this.commandsCacheInvalidator?.()
     this.mainWindow?.webContents.send('plugins-changed')
   }
 
@@ -610,83 +636,13 @@ export class PluginsAPI {
     pluginName?: string
   ): Promise<{ success: boolean; content?: string; error?: string }> {
     try {
-      // 如果 pluginPathOrName 是一个路径（包含 / 或 \），则读取本地文件
-      if (pluginPathOrName.includes('/') || pluginPathOrName.includes('\\')) {
-        return await this.getLocalPluginReadme(pluginPathOrName)
-      }
-
-      // 否则当作插件名称，从远程加载
       const name = pluginName || pluginPathOrName
+      if (!name || name.includes('/') || name.includes('\\')) {
+        return { success: false, error: '插件名称不存在' }
+      }
       return await this.getRemotePluginReadme(name)
     } catch (error: unknown) {
       console.error('[Plugins] 读取插件 README 失败:', error)
-      return { success: false, error: error instanceof Error ? error.message : '读取失败' }
-    }
-  }
-
-  // 读取本地插件 README
-  private async getLocalPluginReadme(
-    pluginPath: string
-  ): Promise<{ success: boolean; content?: string; error?: string }> {
-    try {
-      // 尝试不同的 README 文件名（大小写不敏感）
-      const possibleReadmeFiles = ['README.md', 'readme.md', 'Readme.md', 'README.MD']
-
-      for (const filename of possibleReadmeFiles) {
-        const readmePath = path.join(pluginPath, filename)
-        try {
-          let content = await fs.readFile(readmePath, 'utf-8')
-
-          // 将插件路径转换为 file:// URL（跨平台兼容）
-          const pluginPathUrl = pathToFileURL(pluginPath).href
-
-          // 替换 Markdown 图片语法：![alt](path)
-          content = content.replace(
-            /!\[([^\]]*)\]\((?!http|file:)([^)]+)\)/g,
-            (_match, alt, imgPath) => {
-              const cleanPath = imgPath.replace(/^\.\//, '')
-              return `![${alt}](${pluginPathUrl}/${cleanPath})`
-            }
-          )
-
-          // 替换 HTML img 标签的 src 属性
-          content = content.replace(
-            /<img([^>]*?)src=["'](?!http|file:)([^"']+)["']([^>]*?)>/gi,
-            (_match, before, src, after) => {
-              const cleanSrc = src.replace(/^\.\//, '')
-              return `<img${before}src="${pluginPathUrl}/${cleanSrc}"${after}>`
-            }
-          )
-
-          // 替换 Markdown 链接语法（排除锚点链接 #）
-          content = content.replace(
-            /\[([^\]]+)\]\((?!http|file:|#)([^)]+)\)/g,
-            (_match, text, linkPath) => {
-              const cleanPath = linkPath.replace(/^\.\//, '')
-              return `[${text}](${pluginPathUrl}/${cleanPath})`
-            }
-          )
-
-          // 替换 HTML a 标签的 href 属性（排除锚点链接和外部链接）
-          content = content.replace(
-            /<a([^>]*?)href=["'](?!http|file:|#)([^"']+)["']([^>]*?)>/gi,
-            (_match, before, href, after) => {
-              const cleanHref = href.replace(/^\.\//, '')
-              return `<a${before}href="${pluginPathUrl}/${cleanHref}"${after}>`
-            }
-          )
-
-          return { success: true, content }
-        } catch {
-          // 继续尝试下一个文件名
-          continue
-        }
-      }
-
-      // 所有文件名都不存在
-      return { success: false, error: '暂无详情' }
-    } catch (error: unknown) {
-      console.error('[Plugins] 读取本地插件 README 失败:', error)
       return { success: false, error: error instanceof Error ? error.message : '读取失败' }
     }
   }
@@ -696,55 +652,16 @@ export class PluginsAPI {
     pluginName: string
   ): Promise<{ success: boolean; content?: string; error?: string }> {
     try {
-      const baseUrl = `https://raw.githubusercontent.com/ZToolsCenter/ZTools-plugins/main/plugins/${pluginName}`
-      const readmeUrl = `${baseUrl}/README.md`
-
-      console.log('[Plugins] 从远程加载 README:', readmeUrl)
-
-      // 使用 httpGet 获取 README 内容（走系统代理）
-      const response = await httpGet(readmeUrl, {
-        validateStatus: (status) => status >= 200 && status < 400
-      })
-      if (response.status >= 300) {
-        return { success: false, error: '暂无详情' }
+      const response = await requestPluginMarket(
+        `/plugins/readme?name=${encodeURIComponent(pluginName)}`
+      )
+      const data = response.data as { content?: string; error?: string }
+      if (!data.content) {
+        return { success: false, error: data.error || '暂无详情' }
       }
-
-      let content =
-        typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
-
-      // 替换 Markdown 图片语法：![alt](path)
-      content = content.replace(/!\[([^\]]*)\]\((?!http)([^)]+)\)/g, (_match, alt, imgPath) => {
-        const cleanPath = imgPath.replace(/^\.\//, '')
-        return `![${alt}](${baseUrl}/${cleanPath})`
-      })
-
-      // 替换 HTML img 标签的 src 属性
-      content = content.replace(
-        /<img([^>]*?)src=["'](?!http)([^"']+)["']([^>]*?)>/gi,
-        (_match, before, src, after) => {
-          const cleanSrc = src.replace(/^\.\//, '')
-          return `<img${before}src="${baseUrl}/${cleanSrc}"${after}>`
-        }
-      )
-
-      // 替换 Markdown 链接语法（排除锚点链接 #）
-      content = content.replace(/\[([^\]]+)\]\((?!http|#)([^)]+)\)/g, (_match, text, linkPath) => {
-        const cleanPath = linkPath.replace(/^\.\//, '')
-        return `[${text}](${baseUrl}/${cleanPath})`
-      })
-
-      // 替换 HTML a 标签的 href 属性（排除锚点链接和外部链接）
-      content = content.replace(
-        /<a([^>]*?)href=["'](?!http|#)([^"']+)["']([^>]*?)>/gi,
-        (_match, before, href, after) => {
-          const cleanHref = href.replace(/^\.\//, '')
-          return `<a${before}href="${baseUrl}/${cleanHref}"${after}>`
-        }
-      )
-
-      return { success: true, content }
+      return { success: true, content: data.content }
     } catch (error: unknown) {
-      console.error('[Plugins] 从远程加载插件 README 失败:', error)
+      console.error('[Plugins] 从服务端加载插件 README 失败:', error)
       return { success: false, error: error instanceof Error ? error.message : '加载失败' }
     }
   }

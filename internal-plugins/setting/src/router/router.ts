@@ -129,7 +129,7 @@ const homeRoutes: MenuRouterItemType[] = [
     component: () => import('@/views/SyncSetting/SyncSetting.vue'),
     meta: {
       menu: {
-        label: 'WebDAV 同步',
+        label: '数据同步',
         icon: 'i-z-cloud'
       }
     }

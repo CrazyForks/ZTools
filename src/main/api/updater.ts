@@ -9,6 +9,7 @@ import yaml from 'yaml'
 import databaseAPI from './shared/database.js'
 import { applyWindowMaterial, getDefaultWindowMaterial } from '../utils/windowUtils.js'
 import { syncWindowsUninstallVersion } from '../utils/registrySync.js'
+import { getTempPath } from '../core/appData/appDataPaths'
 
 /**
  * 更新路径配置
@@ -212,7 +213,7 @@ export class UpdaterAPI {
       console.log('[Updater] 下载更新包:', downloadUrl)
 
       // 2. 下载更新包
-      const tempDir = path.join(app.getPath('userData'), 'ztools-update-pkg')
+      const tempDir = path.join(getTempPath(), 'ztools-update-pkg')
       await fs.mkdir(tempDir, { recursive: true })
       const tempZipPath = path.join(tempDir, `update-${Date.now()}.zip`)
       const extractPath = path.join(tempDir, `extracted-${Date.now()}`)
@@ -389,7 +390,7 @@ export class UpdaterAPI {
       console.log('[Updater] 开始检查更新...')
 
       // 1. 下载 latest.yml 文件
-      const tempDir = path.join(app.getPath('userData'), 'ztools-update-check')
+      const tempDir = path.join(getTempPath(), 'ztools-update-check')
       await fs.mkdir(tempDir, { recursive: true })
       const tempFilePath = path.join(tempDir, `latest-${Date.now()}.yml`)
 

@@ -5,6 +5,7 @@ import type { PluginUninstallOptions } from '@/components'
 import { PluginDetail, NpmInstallPanel } from './components'
 import { compareVersions, upgradeInstalledPluginFromMarket, weightedSearch } from '@/utils'
 import { useJumpFunction, useZtoolsSubInput } from '@/composables'
+import { jumpFunctionPluginMarketSetting } from '@/views/PluginMarketSetting/PluginMarketSetting'
 import { useRouter } from 'vue-router'
 
 // const emit = defineEmits<{
@@ -24,6 +25,7 @@ const isDeleting = ref(false)
 const isKilling = ref(false)
 const isKillingAll = ref(false)
 const isExportingAll = ref(false)
+const isCheckingMarketUpdates = ref(false)
 // 是否正在执行“全部更新”
 const isUpgradingAll = ref(false)
 // “全部更新”当前完成数（用于进度展示）
@@ -169,6 +171,7 @@ let marketCheckSeq = 0
 // 异步检查市场更新，补充 hasUpdate / marketPlugin 等字段
 async function checkMarketUpdates(): Promise<void> {
   const seq = ++marketCheckSeq
+  isCheckingMarketUpdates.value = true
   try {
     const marketResult = await window.ztools.internal.fetchPluginMarket()
     if (seq !== marketCheckSeq) return // 已被新调用取代，丢弃结果
@@ -195,8 +198,18 @@ async function checkMarketUpdates(): Promise<void> {
       }),
       marketPluginMap
     )
+    if (selectedPlugin.value) {
+      const updated = plugins.value.find((p: any) => p.path === selectedPlugin.value?.path)
+      if (updated) {
+        selectedPlugin.value = updated
+      }
+    }
   } catch (err) {
     console.error('检查市场更新失败:', err)
+  } finally {
+    if (seq === marketCheckSeq) {
+      isCheckingMarketUpdates.value = false
+    }
   }
 }
 
@@ -460,6 +473,13 @@ async function handleOpenFolder(plugin: any): Promise<void> {
     console.error('打开目录失败:', err)
     error(`打开目录失败: ${err.message || '未知错误'}`)
   }
+}
+
+function handleOpenMarketDetail(plugin: any): void {
+  jumpFunctionPluginMarketSetting({
+    type: 'detail',
+    payload: plugin.name
+  })
 }
 
 async function handleTogglePluginDisabled(plugin: any, disabled: boolean): Promise<void> {
@@ -738,16 +758,21 @@ async function handleInstallFromNpm(data: {
                   {{ isImportingNpm ? '安装中...' : '从 npm 安装' }}
                 </button>
                 <button
-                  v-if="upgradablePluginsCount > 0"
                   class="more-menu-item"
-                  :disabled="isUpgradingAll"
+                  :disabled="
+                    isUpgradingAll || isCheckingMarketUpdates || upgradablePluginsCount === 0
+                  "
                   @click="handleUpgradeAllPlugins"
                 >
                   <div class="i-z-refresh font-size-16px" />
                   {{
-                    isUpgradingAll
-                      ? `更新中... ${upgradeProgressDone}/${upgradeProgressTotal}`
-                      : `全部更新 (${upgradablePluginsCount})`
+                    isCheckingMarketUpdates
+                      ? '检测更新中...'
+                      : isUpgradingAll
+                        ? `更新中... ${upgradeProgressDone}/${upgradeProgressTotal}`
+                        : upgradablePluginsCount > 0
+                          ? `全部更新 (${upgradablePluginsCount})`
+                          : '暂无可更新'
                   }}
                 </button>
                 <button
@@ -947,11 +972,13 @@ async function handleInstallFromNpm(data: {
         :is-running="isPluginRunning(selectedPlugin.path)"
         :is-pinned="isPluginPinned(selectedPlugin.path)"
         :is-disabled="isPluginDisabled(selectedPlugin.path)"
+        :show-market-button="!!selectedPlugin.marketPlugin"
         @back="closePluginDetail"
         @open="handleOpenPlugin(selectedPlugin)"
         @uninstall="handleUninstallFromDetail(selectedPlugin, $event)"
         @kill="handleKillPlugin(selectedPlugin)"
         @open-folder="handleOpenFolder(selectedPlugin)"
+        @open-market="handleOpenMarketDetail(selectedPlugin)"
         @toggle-pin="togglePin(selectedPlugin)"
         @toggle-disabled="handleTogglePluginDisabled(selectedPlugin, $event)"
       />

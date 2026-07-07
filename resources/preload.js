@@ -947,6 +947,21 @@ window.ztools = {
       await electron.ipcRenderer.invoke('internal:kill-plugin', pluginPath),
     fetchPluginMarket: async () =>
       await electron.ipcRenderer.invoke('internal:fetch-plugin-market'),
+    fetchPluginMarketRecommendations: async (limit) =>
+      await electron.ipcRenderer.invoke('internal:fetch-plugin-market-recommendations', limit),
+    fetchPluginMarketComments: async (pluginName, page, pageSize) =>
+      await electron.ipcRenderer.invoke(
+        'internal:fetch-plugin-market-comments',
+        pluginName,
+        page,
+        pageSize
+      ),
+    createPluginMarketComment: async (input) =>
+      await electron.ipcRenderer.invoke('internal:create-plugin-market-comment', input),
+    togglePluginMarketCommentLike: async (commentId) =>
+      await electron.ipcRenderer.invoke('internal:toggle-plugin-market-comment-like', commentId),
+    deletePluginMarketComment: async (commentId) =>
+      await electron.ipcRenderer.invoke('internal:delete-plugin-market-comment', commentId),
     installPluginFromMarket: async (plugin) =>
       await electron.ipcRenderer.invoke('internal:install-plugin-from-market', plugin),
     cancelPluginMarketDownload: async (pluginNameOrTaskId) =>
@@ -1021,6 +1036,7 @@ window.ztools = {
     setLaunchAtLogin: async (enabled) =>
       await electron.ipcRenderer.invoke('internal:set-launch-at-login', enabled),
     getLaunchAtLogin: async () => await electron.ipcRenderer.invoke('internal:get-launch-at-login'),
+    selectImageFile: async () => await electron.ipcRenderer.invoke('internal:select-image-file'),
     setProxyConfig: async (config) =>
       await electron.ipcRenderer.invoke('internal:set-proxy-config', config),
     getAppVersion: async () => await electron.ipcRenderer.invoke('get-app-version'),
@@ -1108,16 +1124,59 @@ window.ztools = {
     updaterSetAutoCheck: async (enabled) =>
       await electron.ipcRenderer.invoke('internal:updater-set-auto-check', enabled),
 
-    // ==================== WebDAV 同步 API ====================
+    // ==================== 数据同步 API ====================
     syncTestConnection: async (config) =>
       await electron.ipcRenderer.invoke('sync:test-connection', config),
+    syncGetCaptchaConfig: async (params) =>
+      await electron.ipcRenderer.invoke('sync:get-captcha-config', params),
+    syncLogin: async (params) => await electron.ipcRenderer.invoke('sync:login', params),
     syncSaveConfig: async (config) => await electron.ipcRenderer.invoke('sync:save-config', config),
     syncGetConfig: async () => await electron.ipcRenderer.invoke('sync:get-config'),
+    syncGetState: async () => await electron.ipcRenderer.invoke('sync:get-state'),
+    syncGetStatus: async () => await electron.ipcRenderer.invoke('sync:get-status'),
+    syncGetDefaultImportStatus: async () =>
+      await electron.ipcRenderer.invoke('sync:get-default-import-status'),
+    syncImportDefaultData: async () =>
+      await electron.ipcRenderer.invoke('sync:import-default-data'),
+    syncSkipDefaultImport: async () =>
+      await electron.ipcRenderer.invoke('sync:skip-default-import'),
+    syncGetRetryStatus: async () => await electron.ipcRenderer.invoke('sync:get-retry-status'),
+    syncGetAccountStats: async () => await electron.ipcRenderer.invoke('sync:get-account-stats'),
+    syncGetAccountProfile: async () =>
+      await electron.ipcRenderer.invoke('sync:get-account-profile'),
+    syncUploadAccountAvatar: async (avatarPath) =>
+      await electron.ipcRenderer.invoke('sync:upload-account-avatar', avatarPath),
+    syncRetryNow: async () => await electron.ipcRenderer.invoke('sync:retry-now'),
     syncPerformSync: async () => await electron.ipcRenderer.invoke('sync:perform-sync'),
-    syncForceDownloadFromCloud: async () =>
-      await electron.ipcRenderer.invoke('sync:force-download-from-cloud'),
     syncStopAutoSync: async () => await electron.ipcRenderer.invoke('sync:stop-auto-sync'),
     syncGetUnsyncedCount: async () => await electron.ipcRenderer.invoke('sync:get-unsynced-count'),
+    syncGetConflictCount: async () => await electron.ipcRenderer.invoke('sync:get-conflict-count'),
+    syncListConflicts: async () => await electron.ipcRenderer.invoke('sync:list-conflicts'),
+    syncGetConflictDetail: async (docId) =>
+      await electron.ipcRenderer.invoke('sync:get-conflict-detail', docId),
+    syncResolveConflict: async (docId, sourceRev) =>
+      await electron.ipcRenderer.invoke('sync:resolve-conflict', { docId, sourceRev }),
+    storageGetInitState: async () => await electron.ipcRenderer.invoke('storage:get-init-state'),
+    storageStartFresh: async () => await electron.ipcRenderer.invoke('storage:start-fresh'),
+    storageImportLegacy: async (options) =>
+      await electron.ipcRenderer.invoke('storage:import-legacy', options),
+    syncResetLocalSyncState: async () =>
+      await electron.ipcRenderer.invoke('sync:reset-local-sync-state'),
+    syncForcePushAll: async () => await electron.ipcRenderer.invoke('sync:force-push-all'),
+    onSyncStatusChanged: (callback) => {
+      const handler = (_event, payload) => {
+        if (typeof callback === 'function') callback(payload || {})
+      }
+      electron.ipcRenderer.on('sync:status-changed', handler)
+      return () => electron.ipcRenderer.removeListener('sync:status-changed', handler)
+    },
+    onSyncAccountStorageChanged: (callback) => {
+      const handler = (_event, payload) => {
+        if (typeof callback === 'function') callback(payload)
+      }
+      electron.ipcRenderer.on('sync:account-storage-changed', handler)
+      return () => electron.ipcRenderer.removeListener('sync:account-storage-changed', handler)
+    },
 
     // ==================== 其他 API ====================
     revealInFinder: async (path) =>

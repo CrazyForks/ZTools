@@ -45,7 +45,8 @@ export default defineConfig({
           index: resolve(__dirname, 'src/renderer/index.html'),
           'detached-titlebar': resolve(__dirname, 'src/renderer/detached-titlebar.html'),
           'super-panel': resolve(__dirname, 'src/renderer/super-panel.html'),
-          updater: resolve(__dirname, 'src/renderer/updater.html')
+          updater: resolve(__dirname, 'src/renderer/updater.html'),
+          'legacy-import': resolve(__dirname, 'src/renderer/legacy-import.html')
         }
       }
     }

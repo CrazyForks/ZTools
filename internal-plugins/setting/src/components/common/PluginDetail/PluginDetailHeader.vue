@@ -9,6 +9,7 @@ const props = defineProps<{
   downloadState?: PluginDownloadState
   canUpgrade: boolean
   showSize?: boolean
+  showDownloadCount?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -56,6 +57,10 @@ const providerLabels = computed(() =>
     type,
     label: type === 'translation' ? '翻译提供商' : 'OCR 提供商'
   }))
+)
+
+const formattedDownloadCount = computed(() =>
+  Number(props.plugin.downloadCount || 0).toLocaleString('zh-CN')
 )
 
 function formatSize(bytes?: number): string {
@@ -300,6 +305,37 @@ function openHomepage(): void {
           </svg>
         </div>
         <div class="meta-value">{{ formatSize(plugin.size) || '-' }}</div>
+      </div>
+
+      <div v-if="showDownloadCount" class="meta-divider"></div>
+
+      <div v-if="showDownloadCount" class="meta-item">
+        <div class="meta-label">下载量</div>
+        <div class="meta-icon">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M3 3V21H21"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M7 14L11 10L15 13L21 7"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </div>
+        <div class="meta-value">{{ formattedDownloadCount }}</div>
       </div>
 
       <slot name="meta-extra" />

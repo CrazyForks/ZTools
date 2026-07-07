@@ -64,8 +64,8 @@
     "uiohook-napi": "^1.5.4",
     "uuid": "^13.0.0",
     "vuedraggable": "^4.1.0",
-    "webdav": "^5.8.0",
     "winreg": "^1.2.5",
+    "ws": "^8.20.0",
     "yaml": "^2.8.2"
   },
   "devDependencies": {
@@ -78,6 +78,7 @@
     "@types/tar": "^7.0.87",
     "@types/turndown": "^5.0.6",
     "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-vue": "^6.0.1",
     "concurrently": "^9.1.2",
     "electron": "41.4.0",

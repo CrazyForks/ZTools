@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '预发布版本号，例如 3.0.0-beta.1'
+        required: true
+      prerelease:
+        description: '是否发布为 GitHub Pre-release'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -33,6 +42,38 @@ jobs:
     steps:
       - name: Check out git repository
         uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: release_meta
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            version="${INPUT_VERSION#v}"
+            prerelease="${INPUT_PRERELEASE:-true}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+            prerelease="false"
+          fi
+
+          if [ -z "$version" ]; then
+            echo "Release version is required" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "make_latest=$([ "$prerelease" = "true" ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+
+      - name: Set package version
+        env:
+          RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
+        run: |
+          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json','utf8')); pkg.version=process.env.RELEASE_VERSION; fs.writeFileSync('package.json', JSON.stringify(pkg,null,2)+'\n');"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v2
@@ -82,6 +123,38 @@ jobs:
       - name: Check out git repository
         uses: actions/checkout@v4
 
+      - name: Resolve release metadata
+        id: release_meta
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            version="${INPUT_VERSION#v}"
+            prerelease="${INPUT_PRERELEASE:-true}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+            prerelease="false"
+          fi
+
+          if [ -z "$version" ]; then
+            echo "Release version is required" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "make_latest=$([ "$prerelease" = "true" ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+
+      - name: Set package version
+        env:
+          RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
+        run: |
+          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json','utf8')); pkg.version=process.env.RELEASE_VERSION; fs.writeFileSync('package.json', JSON.stringify(pkg,null,2)+'\n');"
+
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
@@ -116,12 +189,19 @@ jobs:
 
       # 生成更新信息和下载链接
       - name: Generate update info
+        env:
+          RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
         run: pnpm updater
 
       # 只上传指定的三类文件到 Release
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ steps.release_meta.outputs.tag }}
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ steps.release_meta.outputs.prerelease }}
+          make_latest: ${{ steps.release_meta.outputs.make_latest }}
           body_path: changelog.md
           files: |
             dist/*.exe
