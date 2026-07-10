@@ -116,6 +116,7 @@ type PluginMarketCommentItem = {
   id: number
   pluginName: string
   uid: string
+  nickname: string
   avatarUrl?: string
   parentId?: number | null
   parent?: PluginMarketCommentParent | null
@@ -130,6 +131,7 @@ type PluginMarketCommentItem = {
 type PluginMarketCommentParent = {
   id: number
   uid: string
+  nickname: string
   avatarUrl?: string
   content: string
   deleted: boolean
@@ -372,6 +374,7 @@ export class PluginMarketAPI {
       id: Number(item?.id || 0),
       pluginName: String(item?.pluginName || ''),
       uid: String(item?.uid || ''),
+      nickname: String(item?.nickname || ''),
       avatarUrl: String(item?.avatarUrl || ''),
       parentId: item?.parentId == null ? null : Number(item.parentId),
       parent: item?.parent ? this.parseCommentParent(item.parent) : null,
@@ -391,6 +394,7 @@ export class PluginMarketAPI {
     return {
       id: Number(item?.id || 0),
       uid: String(item?.uid || ''),
+      nickname: String(item?.nickname || ''),
       avatarUrl: String(item?.avatarUrl || ''),
       content: String(item?.content || ''),
       deleted: Boolean(item?.deleted),
