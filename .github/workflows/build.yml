@@ -13,6 +13,10 @@ on:
         description: '是否发布为 GitHub Pre-release'
         type: boolean
         default: true
+      publish_release:
+        description: '是否发布到 GitHub Release'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -117,6 +121,7 @@ jobs:
   release:
     name: Release
     needs: build
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
     runs-on: ubuntu-latest
 
     steps:
