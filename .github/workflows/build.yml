@@ -116,6 +116,8 @@ jobs:
             dist/*.exe
             dist/*.dmg
             dist/*.zip
+            dist/*.yml
+            dist/*.blockmap
           if-no-files-found: warn
 
   release:
@@ -192,7 +194,7 @@ jobs:
           name: artifact-windows-latest-x64
           path: dist
 
-      # 生成更新信息和下载链接
+      # 生成下载链接；latest.yml 等标准更新元数据来自 Windows 构建产物
       - name: Generate update info
         env:
           RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
@@ -212,7 +214,7 @@ jobs:
             dist/*.exe
             dist/*.dmg
             dist/*.zip
-            latest.yml
+            dist/latest.yml
 
       # # 安装 ossutil
       # - name: Setup ossutil

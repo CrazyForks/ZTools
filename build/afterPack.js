@@ -213,15 +213,18 @@ module.exports = async function (context) {
         console.error(`未找到 updater 文件: ${src}`)
       }
     } else if (context.electronPlatformName === 'win32') {
-      const src = path.join(updaterDir, 'win-amd64', 'ztools-agent.exe')
-      const dest = path.join(context.appOutDir, 'ztools-agent.exe')
+      console.log('Windows 标准更新版本不再复制 legacy agent')
 
-      if (await pathExists(src)) {
-        await copy(src, dest)
-        console.log(`已复制 agent 到: ${dest}`)
-      } else {
-        console.error(`未找到 agent 文件: ${src}`)
+      const packageJson = require('../package.json')
+      const installInfo = {
+        schemaVersion: 1,
+        appId: 'top.z-tools',
+        electronVersion: packageJson.devDependencies.electron,
+        updater: 'electron-updater-nsis'
       }
+      const installInfoPath = path.join(context.appOutDir, 'resources', 'ztools-install-info.json')
+      await fs.writeFile(installInfoPath, `${JSON.stringify(installInfo, null, 2)}\n`)
+      console.log(`已写入 Windows 完整安装标记: ${installInfoPath}`)
     }
   } catch (err) {
     console.error('复制升级程序失败:', err)
