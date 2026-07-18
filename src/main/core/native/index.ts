@@ -127,6 +127,7 @@ interface NativeAddon {
     | { type: 'file'; data: string[] }
     | { type: 'image'; data: string }
   >
+  launchCuiShell: (shell: string, workingDirectory: string) => boolean
 }
 
 interface WindowInfo {
@@ -1088,6 +1089,15 @@ export class ColorPicker {
    */
   static get isActive(): boolean {
     return ColorPicker._isActive
+  }
+}
+
+export class CuiProcess {
+  static launchPowerShell(workingDirectory: string): Promise<boolean> {
+    return Promise.resolve((addon as NativeAddon).launchCuiShell('powershell', workingDirectory))
+  }
+  static launchCmd(workingDirectory: string): Promise<boolean> {
+    return Promise.resolve((addon as NativeAddon).launchCuiShell('cmd', workingDirectory))
   }
 }
 
