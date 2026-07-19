@@ -102,7 +102,7 @@ export const useWindowStore = defineStore('window', () => {
   const searchMode = ref<SearchMode>('aggregate')
 
   const theme = ref('system') // system, light, dark
-  const primaryColor = ref('blue') // blue, purple, green, orange, red, pink, custom
+  const primaryColor = ref('green') // blue, purple, green, orange, red, pink, custom
   const customColor = ref('#db2777') // 自定义颜色
 
   // 亚克力材质背景色透明度（0-100）
@@ -502,7 +502,10 @@ export const useWindowStore = defineStore('window', () => {
     aiRequestStatus.value = status
   }
 
-  // 从数据库加载设置
+  /**
+   * 从数据库加载主窗口设置，并应用缺失字段的默认值。
+   * @returns 设置加载和应用完成后结束的 Promise
+   */
   async function loadSettings(): Promise<void> {
     try {
       const data = await window.ztools.dbGet('settings-general')
@@ -531,8 +534,8 @@ export const useWindowStore = defineStore('window', () => {
         if (data.primaryColor) {
           updatePrimaryColor(data.primaryColor)
         } else {
-          // 默认蓝色
-          updatePrimaryColor('blue')
+          // 旧配置缺少主题色时使用当前产品默认的绿色。
+          updatePrimaryColor('green')
         }
         if (data.acrylicLightOpacity !== undefined) {
           acrylicLightOpacity.value = data.acrylicLightOpacity
@@ -577,8 +580,8 @@ export const useWindowStore = defineStore('window', () => {
           builtInEscShortcutEnabled.value = config.esc !== false
         }
       } else {
-        // 默认蓝色
-        updatePrimaryColor('blue')
+        // 首次启动没有通用设置时使用当前产品默认的绿色。
+        updatePrimaryColor('green')
       }
 
       // 监听系统主题变化，重新应用自定义颜色
