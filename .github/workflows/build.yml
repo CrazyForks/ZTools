@@ -223,27 +223,32 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: artifact-macos-15-intel-x64
-          path: dist
+          path: dist/mac-x64
 
       - name: Download macOS ARM64 artifact
         uses: actions/download-artifact@v4
         with:
           name: artifact-macos-14-arm64
-          path: dist
+          path: dist/mac-arm64
 
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
           name: artifact-windows-latest-x64
-          path: dist
+          path: dist/windows
 
-      # 生成下载链接；latest.yml 等标准更新元数据来自 Windows 构建产物
+      # 合并 macOS 双架构元数据，并保留 Windows 与 legacy macOS 的 latest.yml。
       - name: Generate update info
         env:
           RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
+          WINDOWS_UPDATE_METADATA: dist/windows/latest.yml
+          MAC_X64_UPDATE_METADATA: dist/mac-x64/latest-mac.yml
+          MAC_ARM64_UPDATE_METADATA: dist/mac-arm64/latest-mac.yml
+          UPDATE_METADATA_OUTPUT_DIR: dist/release
+          REQUIRE_UPDATE_METADATA: 'true'
         run: pnpm updater
 
-      # 只上传指定的三类文件到 Release
+      # 上传安装包、标准更新包、legacy 兼容包、blockmap 和最终元数据。
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
@@ -254,10 +259,16 @@ jobs:
           make_latest: ${{ steps.release_meta.outputs.make_latest }}
           body_path: changelog.md
           files: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.zip
-            dist/latest.yml
+            dist/windows/*.exe
+            dist/windows/*.zip
+            dist/windows/*.blockmap
+            dist/mac-x64/*.dmg
+            dist/mac-x64/*.zip
+            dist/mac-x64/*.blockmap
+            dist/mac-arm64/*.dmg
+            dist/mac-arm64/*.zip
+            dist/mac-arm64/*.blockmap
+            dist/release/*.yml
 
       # # 安装 ossutil
       # - name: Setup ossutil
