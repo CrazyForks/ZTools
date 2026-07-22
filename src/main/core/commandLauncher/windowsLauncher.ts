@@ -165,7 +165,11 @@ export async function launchApp(
 
   // 检查是否是协议链接（如 ms-settings:, steam://, battlenet:// 等）
   // 协议链接失败时必须回退 openExternal，openPath 可能卡住。
-  if (/^[a-zA-Z][a-zA-Z0-9+\-.]*:/.test(appPath) && !path.win32.isAbsolute(appPath)) {
+  if (
+    /^[a-zA-Z][a-zA-Z0-9+\-.]*:/.test(appPath) &&
+    !appPath.includes('\\') &&
+    !path.win32.isAbsolute(appPath)
+  ) {
     try {
       await openApplicationViaExplorer(appPath, 'openExternal')
       return
