@@ -15,7 +15,6 @@ import {
   isBundledInternalPlugin,
   normalizeCustomInternalApiPluginNames
 } from '../core/internalPlugins'
-import { getInternalPluginUrl, getInternalPluginServerPort } from '../core/internalPluginServer'
 import pluginWindowManager from '../core/pluginWindowManager'
 import { registerIconProtocolForSession } from '../core/iconProtocol'
 import lmdbInstance from '../core/lmdb/lmdbInstance'
@@ -175,8 +174,11 @@ export class PluginManager {
   }
 
   /**
-   * 解析插件入口 URL
-   * @returns pluginUrl（字符串）以及是否无界面插件
+   * 根据插件类型和运行环境解析插件视图入口 URL。
+   * @param pluginPath 插件文件所在目录
+   * @param pluginConfig 插件配置
+   * @param isDevelopment 是否以开发模式运行插件
+   * @returns 插件入口 URL 及无界面插件标记
    */
   private resolvePluginUrl(
     pluginPath: string,
@@ -196,12 +198,6 @@ export class PluginManager {
     if (pluginConfig.main.startsWith('http')) {
       console.log('[Plugin] 网络插件:', pluginConfig.main)
       return { pluginUrl: pluginConfig.main, isConfigHeadless }
-    }
-    // 生产环境内置插件：使用本地 HTTP server 加载（避免 file:// 下的 CSP 限制）
-    if (isBundledInternalPlugin(pluginConfig.name) && getInternalPluginServerPort() > 0) {
-      const httpUrl = getInternalPluginUrl(pluginConfig.name, pluginConfig.main)
-      console.log('[Plugin] 内置插件使用 HTTP server:', httpUrl)
-      return { pluginUrl: httpUrl, isConfigHeadless }
     }
     return {
       pluginUrl: pathToFileURL(path.join(pluginPath, pluginConfig.main)).href,

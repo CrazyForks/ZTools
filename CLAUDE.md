@@ -107,7 +107,6 @@ src/main/                          # 主进程
     pluginWindowManager.ts         # 插件创建的独立窗口管理
     internalPlugins.ts             # 内置插件定义
     internalPluginLoader.ts        # 内置插件加载器
-    internalPluginServer.ts        # 内置插件开发服务器
     iconProtocol.ts                # ztools-icon:// 协议（图标加载）
     screenCapture.ts               # 屏幕截图
     logCollector.ts                # 日志收集
