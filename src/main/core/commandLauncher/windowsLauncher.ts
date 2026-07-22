@@ -165,7 +165,7 @@ export async function launchApp(
 
   // 检查是否是协议链接（如 ms-settings:, steam://, battlenet:// 等）
   // 协议链接失败时必须回退 openExternal，openPath 可能卡住。
-  if (/^[a-zA-Z][a-zA-Z0-9+\-.]*:/.test(appPath) && !appPath.includes('\\')) {
+  if (/^[a-zA-Z][a-zA-Z0-9+\-.]*:/.test(appPath) && !path.win32.isAbsolute(appPath)) {
     try {
       await openApplicationViaExplorer(appPath, 'openExternal')
       return
@@ -238,7 +238,7 @@ export async function launchApp(
   }
 
   // 系统可执行文件（不包含路径分隔符，说明在 PATH 中）
-  if (ext === 'exe' && !appPath.includes('\\')) {
+  if (ext === 'exe' && !appPath.includes('\\') && !appPath.includes('/')) {
     // 对于 PATH 中的可执行文件，使用 shell.openPath（Electron 会自动在 PATH 中查找）
     // 这是最可靠的方式，避免路径解析问题
     const error = await shell.openPath(appPath)

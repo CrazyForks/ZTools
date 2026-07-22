@@ -71,6 +71,15 @@ describe('launchApp 传递工作目录 (#603)', () => {
     expect(opts.workingDirectory).toBe('C:\\Program Files\\MyApp')
   })
 
+  it('启动使用正斜杠的完整路径 exe 时，向原生启动器传入 exe 所在目录作为 workingDirectory', async () => {
+    await launchApp('C:/Program Files/MyApp/app.exe')
+
+    expect(mockLaunch).toHaveBeenCalledTimes(1)
+    const opts = mockLaunch.mock.calls[0][0]
+    expect(opts.target).toBe('C:/Program Files/MyApp/app.exe')
+    expect(opts.workingDirectory).toBe('C:/Program Files/MyApp')
+  })
+
   it('启动 .lnk 时不覆盖 workingDirectory（保持 undefined）', async () => {
     await launchApp('C:\\Users\\Me\\Desktop\\App.lnk')
 
