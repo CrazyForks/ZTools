@@ -1,0 +1,154 @@
+name: Sync Release to CNB
+
+# Mirror an existing GitHub Release and its uploaded assets to CNB.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: GitHub Release tag to sync
+        required: true
+        type: string
+  # Releases created with GITHUB_TOKEN do not trigger another workflow, so the
+  # build workflow calls this reusable workflow directly after publishing.
+  workflow_call:
+    inputs:
+      tag:
+        description: GitHub Release tag to sync
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Serialize the same tag so duplicate triggers cannot upload concurrently.
+concurrency:
+  group: sync-cnb-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  sync-release:
+    name: Sync release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CNB_SYNC_TOKEN: ${{ secrets.CNB_SYNC_TOKEN }}
+      CNB_REPO: ZToolsCenter/ZTools
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Validate configuration
+        shell: bash
+        run: |
+          if [ -z "$CNB_SYNC_TOKEN" ]; then
+            echo "::error::CNB_SYNC_TOKEN repository secret is not configured"
+            exit 1
+          fi
+
+          if [ -z "$TAG" ]; then
+            echo "::error::A GitHub Release tag is required"
+            exit 1
+          fi
+
+      - name: Download GitHub Release metadata and assets
+        shell: bash
+        run: |
+          # Store untrusted release text as JSON instead of interpolating it into shell code.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,body,isPrerelease,assets > release.json
+
+          mkdir -p assets
+
+          # Only invoke the downloader when the Release actually contains uploaded assets.
+          if [ "$(jq '.assets | length' release.json)" -gt 0 ]; then
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets
+          else
+            echo "The GitHub Release has no uploaded assets"
+          fi
+
+      - name: Create CNB Release and upload assets
+        shell: bash
+        run: |
+          API="https://api.cnb.cool/${CNB_REPO}/-/releases"
+          NAME=$(jq -r '.name // .tagName' release.json)
+          BODY=$(jq -r '.body // ""' release.json)
+          PRERELEASE=$(jq -r '.isPrerelease' release.json)
+
+          if [ "$PRERELEASE" = "true" ]; then
+            MAKE_LATEST="false"
+          else
+            MAKE_LATEST="true"
+          fi
+
+          # CNB requires a branch name here and reuses the mirrored tag when it exists.
+          PAYLOAD=$(jq -n \
+            --arg tag_name "$TAG" \
+            --arg name "$NAME" \
+            --arg body "$BODY" \
+            --argjson prerelease "$PRERELEASE" \
+            --arg make_latest "$MAKE_LATEST" \
+            --arg target_commitish "main" \
+            '{tag_name:$tag_name, name:$name, body:$body, prerelease:$prerelease, make_latest:$make_latest, target_commitish:$target_commitish}')
+
+          RESPONSE=$(curl -sS -w "\n%{http_code}" "$API" -X POST \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/vnd.cnb.api+json" \
+            -H "Authorization: Bearer $CNB_SYNC_TOKEN" \
+            -d "$PAYLOAD")
+          STATUS=$(echo "$RESPONSE" | tail -n1)
+          RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
+
+          if [ "$STATUS" != "201" ]; then
+            echo "::error::Failed to create CNB Release (HTTP $STATUS): $RESPONSE_BODY"
+            exit 1
+          fi
+
+          RELEASE_ID=$(echo "$RESPONSE_BODY" | jq -er '.id')
+          echo "Created CNB Release $TAG (id=$RELEASE_ID)"
+
+          shopt -s nullglob
+          for FILE in assets/*; do
+            [ -f "$FILE" ] || continue
+
+            ASSET_NAME=$(basename "$FILE")
+            ASSET_SIZE=$(stat -c%s "$FILE")
+            UPLOAD_RESPONSE=$(curl -sS -w "\n%{http_code}" \
+              "${API}/${RELEASE_ID}/asset-upload-url" -X POST \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/vnd.cnb.api+json" \
+              -H "Authorization: Bearer $CNB_SYNC_TOKEN" \
+              -d "$(jq -n --arg name "$ASSET_NAME" --argjson size "$ASSET_SIZE" \
+                '{asset_name:$name, size:$size, overwrite:true, ttl:0}')")
+            UPLOAD_STATUS=$(echo "$UPLOAD_RESPONSE" | tail -n1)
+            UPLOAD_BODY=$(echo "$UPLOAD_RESPONSE" | sed '$d')
+
+            if [ "$UPLOAD_STATUS" != "201" ]; then
+              echo "::error::Failed to get an upload URL for $ASSET_NAME (HTTP $UPLOAD_STATUS): $UPLOAD_BODY"
+              exit 1
+            fi
+
+            UPLOAD_URL=$(echo "$UPLOAD_BODY" | jq -er '.upload_url')
+            VERIFY_URL=$(echo "$UPLOAD_BODY" | jq -er '.verify_url')
+            PUT_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" \
+              -X PUT --data-binary "@${FILE}" "$UPLOAD_URL")
+
+            if [ "$PUT_STATUS" -ge 300 ]; then
+              echo "::error::Failed to upload $ASSET_NAME (HTTP $PUT_STATUS)"
+              exit 1
+            fi
+
+            VERIFY_RESPONSE=$(curl -sS -w "\n%{http_code}" "$VERIFY_URL" -X POST \
+              -H "Accept: application/vnd.cnb.api+json" \
+              -H "Authorization: Bearer $CNB_SYNC_TOKEN")
+            VERIFY_STATUS=$(echo "$VERIFY_RESPONSE" | tail -n1)
+
+            if [ "$VERIFY_STATUS" != "200" ]; then
+              echo "::error::CNB did not confirm $ASSET_NAME (HTTP $VERIFY_STATUS)"
+              exit 1
+            fi
+
+            echo "Uploaded asset: $ASSET_NAME"
+          done
+
+          echo "Release $TAG is available at https://cnb.cool/${CNB_REPO}/-/releases"

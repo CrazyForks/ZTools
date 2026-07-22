@@ -168,6 +168,8 @@ jobs:
     needs: build
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release_meta.outputs.tag }}
 
     steps:
       - name: Check out git repository
@@ -384,3 +386,11 @@ jobs:
       #     else
       #       echo "✅ 所有文件已成功上传到阿里云 OSS"
       #     fi
+
+  sync-cnb-release:
+    name: Sync Release to CNB
+    needs: release
+    uses: ./.github/workflows/sync-cnb-release.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets: inherit
