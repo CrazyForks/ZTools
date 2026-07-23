@@ -22,25 +22,34 @@ on:
 permissions:
   contents: read
 
-# Serialize the same tag so duplicate triggers cannot upload concurrently.
+# Serialize the same tag so duplicate triggers cannot update one release concurrently.
 concurrency:
   group: sync-cnb-release-${{ github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
-  sync-release:
-    name: Sync release
+  prepare-release:
+    name: Prepare CNB Release
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.prepare.outputs.tag }}
+      release_id: ${{ steps.prepare.outputs.release_id }}
+      has_uploads: ${{ steps.prepare.outputs.has_uploads }}
+      upload_matrix: ${{ steps.prepare.outputs.upload_matrix }}
     env:
       CNB_SYNC_TOKEN: ${{ secrets.CNB_SYNC_TOKEN }}
       CNB_REPO: ZToolsCenter/ZTools
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
-      - name: Validate configuration
+      - name: Prepare release and asset matrix
+        id: prepare
         shell: bash
         run: |
+          set -euo pipefail
+
+          # Validate credentials and the selected Release before making API changes.
           if [ -z "$CNB_SYNC_TOKEN" ]; then
             echo "::error::CNB_SYNC_TOKEN repository secret is not configured"
             exit 1
@@ -51,29 +60,20 @@ jobs:
             exit 1
           fi
 
-      - name: Download GitHub Release metadata and assets
-        shell: bash
-        run: |
-          # Store untrusted release text as JSON instead of interpolating it into shell code.
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --json tagName,name,body,isPrerelease,assets > release.json
+            --json tagName,name,body,isPrerelease,assets > github-release.json
 
-          mkdir -p assets
-
-          # Only invoke the downloader when the Release actually contains uploaded assets.
-          if [ "$(jq '.assets | length' release.json)" -gt 0 ]; then
-            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets
-          else
-            echo "The GitHub Release has no uploaded assets"
+          # Reject path-like asset names before they become local file paths in matrix jobs.
+          if ! jq -e '[.assets[] | select((.name | type) != "string" or (.name | test("[/\\\\]")))] | length == 0' \
+            github-release.json >/dev/null; then
+            echo "::error::The GitHub Release contains an invalid asset name"
+            exit 1
           fi
 
-      - name: Create CNB Release and upload assets
-        shell: bash
-        run: |
           API="https://api.cnb.cool/${CNB_REPO}/-/releases"
-          NAME=$(jq -r '.name // .tagName' release.json)
-          BODY=$(jq -r '.body // ""' release.json)
-          PRERELEASE=$(jq -r '.isPrerelease' release.json)
+          NAME=$(jq -r '.name // .tagName' github-release.json)
+          BODY=$(jq -r '.body // ""' github-release.json)
+          PRERELEASE=$(jq -r '.isPrerelease' github-release.json)
 
           if [ "$PRERELEASE" = "true" ]; then
             MAKE_LATEST="false"
@@ -81,8 +81,7 @@ jobs:
             MAKE_LATEST="true"
           fi
 
-          # CNB requires a branch name here and reuses the mirrored tag when it exists.
-          PAYLOAD=$(jq -n \
+          CREATE_PAYLOAD=$(jq -n \
             --arg tag_name "$TAG" \
             --arg name "$NAME" \
             --arg body "$BODY" \
@@ -90,65 +89,263 @@ jobs:
             --arg make_latest "$MAKE_LATEST" \
             --arg target_commitish "main" \
             '{tag_name:$tag_name, name:$name, body:$body, prerelease:$prerelease, make_latest:$make_latest, target_commitish:$target_commitish}')
+          PATCH_PAYLOAD=$(jq -n \
+            --arg name "$NAME" \
+            --arg body "$BODY" \
+            --argjson prerelease "$PRERELEASE" \
+            --arg make_latest "$MAKE_LATEST" \
+            '{name:$name, body:$body, prerelease:$prerelease, make_latest:$make_latest}')
 
-          RESPONSE=$(curl -sS -w "\n%{http_code}" "$API" -X POST \
-            -H "Content-Type: application/json" \
+          # Reuse an existing Release so reruns can skip or overwrite individual assets.
+          TAG_PATH=$(jq -rn --arg value "$TAG" '$value | @uri')
+          LOOKUP_RESPONSE=$(curl -sS --connect-timeout 15 --max-time 120 \
+            -w "\n%{http_code}" "${API}/tags/${TAG_PATH}" \
             -H "Accept: application/vnd.cnb.api+json" \
-            -H "Authorization: Bearer $CNB_SYNC_TOKEN" \
-            -d "$PAYLOAD")
-          STATUS=$(echo "$RESPONSE" | tail -n1)
-          RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
+            -H "Authorization: Bearer $CNB_SYNC_TOKEN")
+          LOOKUP_STATUS=$(echo "$LOOKUP_RESPONSE" | tail -n1)
+          LOOKUP_BODY=$(echo "$LOOKUP_RESPONSE" | sed '$d')
 
-          if [ "$STATUS" != "201" ]; then
-            echo "::error::Failed to create CNB Release (HTTP $STATUS): $RESPONSE_BODY"
-            exit 1
-          fi
+          if [ "$LOOKUP_STATUS" = "200" ]; then
+            RELEASE_ID=$(echo "$LOOKUP_BODY" | jq -er '.id')
+            printf '%s\n' "$LOOKUP_BODY" > cnb-release.json
 
-          RELEASE_ID=$(echo "$RESPONSE_BODY" | jq -er '.id')
-          echo "Created CNB Release $TAG (id=$RELEASE_ID)"
-
-          shopt -s nullglob
-          for FILE in assets/*; do
-            [ -f "$FILE" ] || continue
-
-            ASSET_NAME=$(basename "$FILE")
-            ASSET_SIZE=$(stat -c%s "$FILE")
-            UPLOAD_RESPONSE=$(curl -sS -w "\n%{http_code}" \
-              "${API}/${RELEASE_ID}/asset-upload-url" -X POST \
+            PATCH_STATUS=$(curl -sS --fail-with-body --connect-timeout 15 --max-time 120 \
+              -o /dev/null -w "%{http_code}" "${API}/${RELEASE_ID}" -X PATCH \
               -H "Content-Type: application/json" \
               -H "Accept: application/vnd.cnb.api+json" \
               -H "Authorization: Bearer $CNB_SYNC_TOKEN" \
-              -d "$(jq -n --arg name "$ASSET_NAME" --argjson size "$ASSET_SIZE" \
-                '{asset_name:$name, size:$size, overwrite:true, ttl:0}')")
-            UPLOAD_STATUS=$(echo "$UPLOAD_RESPONSE" | tail -n1)
-            UPLOAD_BODY=$(echo "$UPLOAD_RESPONSE" | sed '$d')
+              -d "$PATCH_PAYLOAD")
 
-            if [ "$UPLOAD_STATUS" != "201" ]; then
-              echo "::error::Failed to get an upload URL for $ASSET_NAME (HTTP $UPLOAD_STATUS): $UPLOAD_BODY"
+            if [ "$PATCH_STATUS" != "200" ]; then
+              echo "::error::Failed to update CNB Release (HTTP $PATCH_STATUS)"
               exit 1
             fi
 
-            UPLOAD_URL=$(echo "$UPLOAD_BODY" | jq -er '.upload_url')
-            VERIFY_URL=$(echo "$UPLOAD_BODY" | jq -er '.verify_url')
-            PUT_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" \
-              -X PUT --data-binary "@${FILE}" "$UPLOAD_URL")
-
-            if [ "$PUT_STATUS" -ge 300 ]; then
-              echo "::error::Failed to upload $ASSET_NAME (HTTP $PUT_STATUS)"
-              exit 1
-            fi
-
-            VERIFY_RESPONSE=$(curl -sS -w "\n%{http_code}" "$VERIFY_URL" -X POST \
+            echo "Updated existing CNB Release $TAG (id=$RELEASE_ID)"
+          elif [ "$LOOKUP_STATUS" = "404" ]; then
+            CREATE_RESPONSE=$(curl -sS --connect-timeout 15 --max-time 120 \
+              -w "\n%{http_code}" "$API" -X POST \
+              -H "Content-Type: application/json" \
               -H "Accept: application/vnd.cnb.api+json" \
-              -H "Authorization: Bearer $CNB_SYNC_TOKEN")
-            VERIFY_STATUS=$(echo "$VERIFY_RESPONSE" | tail -n1)
+              -H "Authorization: Bearer $CNB_SYNC_TOKEN" \
+              -d "$CREATE_PAYLOAD")
+            CREATE_STATUS=$(echo "$CREATE_RESPONSE" | tail -n1)
+            CREATE_BODY=$(echo "$CREATE_RESPONSE" | sed '$d')
 
-            if [ "$VERIFY_STATUS" != "200" ]; then
+            if [ "$CREATE_STATUS" != "201" ]; then
+              echo "::error::Failed to create CNB Release (HTTP $CREATE_STATUS): $CREATE_BODY"
+              exit 1
+            fi
+
+            RELEASE_ID=$(echo "$CREATE_BODY" | jq -er '.id')
+            printf '%s\n' "$CREATE_BODY" > cnb-release.json
+            echo "Created CNB Release $TAG (id=$RELEASE_ID)"
+          else
+            echo "::error::Failed to query CNB Release (HTTP $LOOKUP_STATUS): $LOOKUP_BODY"
+            exit 1
+          fi
+
+          # Upload only assets whose CNB name, size, or SHA-256 differs from GitHub.
+          UPLOAD_MATRIX=$(jq -cn \
+            --slurpfile github github-release.json \
+            --slurpfile cnb cnb-release.json '
+              def cnb_digest($asset):
+                ($asset.hash_value // "") as $value |
+                if $value == "" then ""
+                elif ($value | contains(":")) then ($value | ascii_downcase)
+                else ((($asset.hash_algo // "sha256") | ascii_downcase) + ":" + ($value | ascii_downcase))
+                end;
+              [
+                $github[0].assets[] |
+                select(.state == "uploaded") |
+                . as $source |
+                (($cnb[0].assets // []) | map(select(.name == $source.name)) | first) as $target |
+                select(
+                  $target == null or
+                  $target.size != $source.size or
+                  ($source.digest // "") == "" or
+                  cnb_digest($target) != (($source.digest // "") | ascii_downcase)
+                ) |
+                {
+                  name: .name,
+                  size: .size,
+                  digest: (.digest // ""),
+                  api_url: .apiUrl
+                }
+              ] | {include: map({asset: .})}
+            ')
+          UPLOAD_COUNT=$(jq '.include | length' <<< "$UPLOAD_MATRIX")
+
+          # Publish compact JSON outputs for the bounded upload matrix.
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+          echo "upload_matrix=$UPLOAD_MATRIX" >> "$GITHUB_OUTPUT"
+          if [ "$UPLOAD_COUNT" -gt 0 ]; then
+            echo "has_uploads=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_uploads=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          TOTAL_COUNT=$(jq '[.assets[] | select(.state == "uploaded")] | length' github-release.json)
+          echo "$UPLOAD_COUNT of $TOTAL_COUNT assets require upload"
+
+  upload-assets:
+    name: Upload ${{ matrix.asset.name }}
+    needs: prepare-release
+    if: needs.prepare-release.outputs.has_uploads == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.prepare-release.outputs.upload_matrix) }}
+    env:
+      CNB_SYNC_TOKEN: ${{ secrets.CNB_SYNC_TOKEN }}
+      CNB_REPO: ZToolsCenter/ZTools
+      RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+      GH_TOKEN: ${{ github.token }}
+      ASSET_NAME: ${{ matrix.asset.name }}
+      ASSET_SIZE: ${{ matrix.asset.size }}
+      ASSET_DIGEST: ${{ matrix.asset.digest }}
+      ASSET_API_URL: ${{ matrix.asset.api_url }}
+    steps:
+      - name: Download and validate GitHub asset
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Download exactly one matrix asset without interpreting its name as a glob.
+          mkdir -p asset
+          gh api -H "Accept: application/octet-stream" "$ASSET_API_URL" > "asset/$ASSET_NAME"
+
+          ACTUAL_SIZE=$(stat -c%s "asset/$ASSET_NAME")
+          if [ "$ACTUAL_SIZE" != "$ASSET_SIZE" ]; then
+            echo "::error::Downloaded size mismatch for $ASSET_NAME: expected $ASSET_SIZE, got $ACTUAL_SIZE"
+            exit 1
+          fi
+
+          if [[ "$ASSET_DIGEST" == sha256:* ]]; then
+            EXPECTED_SHA=${ASSET_DIGEST#sha256:}
+            ACTUAL_SHA=$(sha256sum "asset/$ASSET_NAME" | cut -d ' ' -f1)
+            if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+              echo "::error::Downloaded SHA-256 mismatch for $ASSET_NAME"
+              exit 1
+            fi
+          fi
+
+      - name: Upload and confirm CNB asset
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Request a unique upload target and allow reruns to replace the same asset name.
+          API="https://api.cnb.cool/${CNB_REPO}/-/releases"
+          UPLOAD_RESPONSE=$(curl -sS --connect-timeout 15 --max-time 120 \
+            -w "\n%{http_code}" "${API}/${RELEASE_ID}/asset-upload-url" -X POST \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/vnd.cnb.api+json" \
+            -H "Authorization: Bearer $CNB_SYNC_TOKEN" \
+            -d "$(jq -n --arg name "$ASSET_NAME" --argjson size "$ASSET_SIZE" \
+              '{asset_name:$name, size:$size, overwrite:true, ttl:0}')")
+          UPLOAD_STATUS=$(echo "$UPLOAD_RESPONSE" | tail -n1)
+          UPLOAD_BODY=$(echo "$UPLOAD_RESPONSE" | sed '$d')
+
+          if [ "$UPLOAD_STATUS" != "201" ]; then
+            echo "::error::Failed to get an upload URL for $ASSET_NAME (HTTP $UPLOAD_STATUS): $UPLOAD_BODY"
+            exit 1
+          fi
+
+          UPLOAD_URL=$(echo "$UPLOAD_BODY" | jq -er '.upload_url')
+          VERIFY_URL=$(echo "$UPLOAD_BODY" | jq -er '.verify_url')
+
+          # Stream the file with visible progress; retrying a PUT safely replaces the same object.
+          curl --fail-with-body --show-error --location --progress-bar \
+            --connect-timeout 30 --max-time 1200 \
+            --retry 3 --retry-delay 5 --retry-all-errors \
+            -X PUT --upload-file "asset/$ASSET_NAME" "$UPLOAD_URL"
+
+          VERIFY_STATUS=$(curl -sS --fail-with-body --connect-timeout 15 --max-time 120 \
+            -o /dev/null -w "%{http_code}" "$VERIFY_URL" -X POST \
+            -H "Accept: application/vnd.cnb.api+json" \
+            -H "Authorization: Bearer $CNB_SYNC_TOKEN")
+
+          case "$VERIFY_STATUS" in
+            200|201|204) ;;
+            *)
               echo "::error::CNB did not confirm $ASSET_NAME (HTTP $VERIFY_STATUS)"
               exit 1
-            fi
+              ;;
+          esac
 
-            echo "Uploaded asset: $ASSET_NAME"
-          done
+          echo "Uploaded asset: $ASSET_NAME"
 
-          echo "Release $TAG is available at https://cnb.cool/${CNB_REPO}/-/releases"
+  verify-release:
+    name: Verify CNB Release
+    needs: [prepare-release, upload-assets]
+    if: >-
+      ${{
+        always() &&
+        needs.prepare-release.result == 'success' &&
+        (needs.upload-assets.result == 'success' || needs.upload-assets.result == 'skipped')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CNB_SYNC_TOKEN: ${{ secrets.CNB_SYNC_TOKEN }}
+      CNB_REPO: ZToolsCenter/ZTools
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare-release.outputs.tag }}
+    steps:
+      - name: Compare GitHub and CNB assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Re-read both sides after all matrix jobs have confirmed their uploads.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets > github-release.json
+          TAG_PATH=$(jq -rn --arg value "$TAG" '$value | @uri')
+          curl -sS --fail-with-body --connect-timeout 15 --max-time 120 \
+            "https://api.cnb.cool/${CNB_REPO}/-/releases/tags/${TAG_PATH}" \
+            -H "Accept: application/vnd.cnb.api+json" \
+            -H "Authorization: Bearer $CNB_SYNC_TOKEN" \
+            > cnb-release.json
+
+          # Require every GitHub asset to exist on CNB with matching size and SHA-256.
+          MISMATCHES=$(jq -cn \
+            --slurpfile github github-release.json \
+            --slurpfile cnb cnb-release.json '
+              def cnb_digest($asset):
+                ($asset.hash_value // "") as $value |
+                if $value == "" then ""
+                elif ($value | contains(":")) then ($value | ascii_downcase)
+                else ((($asset.hash_algo // "sha256") | ascii_downcase) + ":" + ($value | ascii_downcase))
+                end;
+              [
+                $github[0].assets[] |
+                select(.state == "uploaded") |
+                . as $source |
+                (($cnb[0].assets // []) | map(select(.name == $source.name)) | first) as $target |
+                select(
+                  $target == null or
+                  $target.size != $source.size or
+                  (($source.digest // "") != "" and cnb_digest($target) != (($source.digest // "") | ascii_downcase))
+                ) |
+                {
+                  name: $source.name,
+                  expected_size: $source.size,
+                  actual_size: ($target.size // null),
+                  expected_digest: ($source.digest // ""),
+                  actual_digest: (if $target == null then "" else cnb_digest($target) end)
+                }
+              ]
+            ')
+
+          if [ "$(jq 'length' <<< "$MISMATCHES")" -ne 0 ]; then
+            echo "::error::CNB Release asset verification failed"
+            jq . <<< "$MISMATCHES"
+            exit 1
+          fi
+
+          VERIFIED_COUNT=$(jq '[.assets[] | select(.state == "uploaded")] | length' github-release.json)
+          echo "Verified $VERIFIED_COUNT assets on https://cnb.cool/${CNB_REPO}/-/releases/tag/${TAG}"
