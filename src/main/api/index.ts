@@ -116,6 +116,7 @@ class APIManager {
     systemSettingsAPI.init()
     syncAPI.init(mainWindow, pluginManager)
     localShortcutsAPI.init(mainWindow)
+    localShortcutsAPI.setCommandsCacheInvalidator(() => appsAPI.invalidateCommandsCache(false))
 
     // 初始化插件 API 统一分发器（必须在插件 API 初始化之前）
     initPluginApiDispatcher()

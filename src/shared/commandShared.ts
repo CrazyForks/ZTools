@@ -35,6 +35,8 @@ export type CommandAliasStore = Record<string, CommandAliasEntry[]>
 export const COMMAND_ALIASES_KEY = HOST_STORAGE_KEYS.commandAliases
 export const DIRECT_APP_ALIAS_GROUP_KEY = '__direct_app__'
 export const DIRECT_APP_ALIAS_GROUP_TITLE = '系统应用'
+export const LOCAL_SHORTCUT_ALIAS_GROUP_KEY = '__local_shortcut__'
+export const LOCAL_SHORTCUT_ALIAS_GROUP_TITLE = '本地启动项'
 
 function normalizeDirectAppPath(path?: string): string {
   return (path || '').replace(/\\/g, '/')
@@ -53,6 +55,13 @@ export function getCommandId(cmd: CommandIdLike): string {
     const normalizedPath = normalizeDirectAppPath(cmd.path)
     if (normalizedPath) {
       return `direct:app:${normalizedPath}`
+    }
+  }
+
+  if (cmd.type === 'direct' && cmd.subType === 'local-shortcut') {
+    const normalizedPath = normalizeDirectAppPath(cmd.path)
+    if (normalizedPath) {
+      return `direct:local-shortcut:${normalizedPath}`
     }
   }
 

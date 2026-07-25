@@ -19,6 +19,8 @@ import {
 import {
   DIRECT_APP_ALIAS_GROUP_KEY,
   DIRECT_APP_ALIAS_GROUP_TITLE,
+  LOCAL_SHORTCUT_ALIAS_GROUP_KEY,
+  LOCAL_SHORTCUT_ALIAS_GROUP_TITLE,
   getCommandId as _getCommandId,
   getLegacyDirectAppCommandId
 } from '@shared/commandShared'
@@ -107,21 +109,27 @@ function getCommandId(
 }
 
 function isDirectAppCommand(cmd: Command): boolean {
-  return cmd.type === 'direct' && cmd.subType === 'app'
+  return cmd.type === 'direct' && (cmd.subType === 'app' || cmd.subType === 'local-shortcut')
 }
 
 function buildAppAliasDraftTarget(cmd: Command): ShortcutsSettingAliasDraftTarget {
+  const isLocalShortcut = cmd.subType === 'local-shortcut'
+  const groupKey = isLocalShortcut ? LOCAL_SHORTCUT_ALIAS_GROUP_KEY : DIRECT_APP_ALIAS_GROUP_KEY
+  const groupTitle = isLocalShortcut
+    ? LOCAL_SHORTCUT_ALIAS_GROUP_TITLE
+    : DIRECT_APP_ALIAS_GROUP_TITLE
+
   return {
     commandId: getCommandId(cmd),
     type: 'direct',
-    subType: 'app',
+    subType: cmd.subType as 'app' | 'local-shortcut',
     path: cmd.path,
-    groupKey: DIRECT_APP_ALIAS_GROUP_KEY,
-    groupTitle: DIRECT_APP_ALIAS_GROUP_TITLE,
+    groupKey,
+    groupTitle,
     featureCode: cmd.path || '',
     subtitle: cmd.path || '',
-    pluginName: DIRECT_APP_ALIAS_GROUP_KEY,
-    pluginTitle: DIRECT_APP_ALIAS_GROUP_TITLE,
+    pluginName: groupKey,
+    pluginTitle: groupTitle,
     cmdName: cmd.name,
     cmdType: 'text',
     icon: cmd.icon

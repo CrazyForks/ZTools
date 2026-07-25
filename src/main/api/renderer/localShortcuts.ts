@@ -29,10 +29,30 @@ const LOCAL_SHORTCUTS_KEY = 'local-shortcuts'
  */
 export class LocalShortcutsAPI {
   private mainWindow: Electron.BrowserWindow | null = null
+  private commandsCacheInvalidator: (() => void) | null = null
 
   public init(mainWindow: Electron.BrowserWindow): void {
     this.mainWindow = mainWindow
     this.setupIPC()
+  }
+
+  /**
+   * 设置本地启动项变化时使用的命令缓存失效回调。
+   * @param invalidator 命令缓存失效函数
+   * @returns 无返回值
+   */
+  public setCommandsCacheInvalidator(invalidator: () => void): void {
+    this.commandsCacheInvalidator = invalidator
+  }
+
+  /**
+   * 通知渲染进程本地启动项已变化，并使指令缓存失效。
+   * 使指令缓存失效后，快捷键设置页重新获取 getCommands 时才能拿到最新的本地启动项。
+   * @returns 无返回值
+   */
+  private notifyShortcutsChanged(): void {
+    this.mainWindow?.webContents.send('local-shortcuts-changed')
+    this.commandsCacheInvalidator?.()
   }
 
   private setupIPC(): void {
@@ -190,7 +210,7 @@ export class LocalShortcutsAPI {
       console.log('[LocalShortcut] 添加本地启动项成功:', shortcut.name)
 
       // 通知渲染进程刷新本地启动项
-      this.mainWindow?.webContents.send('local-shortcuts-changed')
+      this.notifyShortcutsChanged()
 
       return { success: true }
     } catch (error) {
@@ -295,7 +315,7 @@ export class LocalShortcutsAPI {
       console.log('[LocalShortcut] 添加本地启动项成功:', shortcut.name)
 
       // 通知渲染进程刷新本地启动项
-      this.mainWindow?.webContents.send('local-shortcuts-changed')
+      this.notifyShortcutsChanged()
 
       return { success: true }
     } catch (error) {
@@ -321,7 +341,7 @@ export class LocalShortcutsAPI {
       console.log('[LocalShortcut] 删除本地启动项成功:', id)
 
       // 通知渲染进程刷新本地启动项
-      this.mainWindow?.webContents.send('local-shortcuts-changed')
+      this.notifyShortcutsChanged()
 
       return { success: true }
     } catch (error) {
@@ -367,7 +387,7 @@ export class LocalShortcutsAPI {
       )
 
       // 通知渲染进程刷新本地启动项
-      this.mainWindow?.webContents.send('local-shortcuts-changed')
+      this.notifyShortcutsChanged()
 
       return { success: true }
     } catch (error) {
@@ -433,7 +453,7 @@ export class LocalShortcutsAPI {
       console.log('[LocalShortcut] 删除失效本地启动项成功:', notExistShortcuts.toString())
 
       // 通知渲染进程刷新本地启动项
-      this.mainWindow?.webContents.send('local-shortcuts-changed')
+      this.notifyShortcutsChanged()
 
       return { success: true }
     } catch (error) {

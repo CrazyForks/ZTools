@@ -1199,6 +1199,27 @@ window.ztools = {
       electron.ipcRenderer.on('sync:account-storage-changed', handler)
       return () => electron.ipcRenderer.removeListener('sync:account-storage-changed', handler)
     },
+    onLocalShortcutsChanged: (callback) => {
+      const handler = (_event) => {
+        if (typeof callback === 'function') callback()
+      }
+      electron.ipcRenderer.on('local-shortcuts-changed', handler)
+      return () => electron.ipcRenderer.removeListener('local-shortcuts-changed', handler)
+    },
+    onAppsChanged: (callback) => {
+      const handler = (_event) => {
+        if (typeof callback === 'function') callback()
+      }
+      electron.ipcRenderer.on('apps-changed', handler)
+      return () => electron.ipcRenderer.removeListener('apps-changed', handler)
+    },
+    onCommandAliasesChanged: (callback) => {
+      const handler = (_event) => {
+        if (typeof callback === 'function') callback()
+      }
+      electron.ipcRenderer.on('command-aliases-changed', handler)
+      return () => electron.ipcRenderer.removeListener('command-aliases-changed', handler)
+    },
 
     // ==================== 其他 API ====================
     revealInFinder: async (path) =>
