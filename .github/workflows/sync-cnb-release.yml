@@ -211,17 +211,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Download exactly one matrix asset while exposing transfer speed in the runner log.
+          # Download exactly one matrix asset without interpreting its name as a glob.
           mkdir -p asset
-          curl --fail-with-body --show-error --location --progress-meter \
-            --connect-timeout 30 --max-time 1200 \
-            --retry 3 --retry-delay 5 --retry-all-errors \
-            -H "Accept: application/octet-stream" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            --output "asset/$ASSET_NAME" \
-            --write-out "\nDownloaded $ASSET_NAME at %{speed_download} bytes/s on average\n" \
-            "$ASSET_API_URL"
+          gh api -H "Accept: application/octet-stream" "$ASSET_API_URL" > "asset/$ASSET_NAME"
 
           ACTUAL_SIZE=$(stat -c%s "asset/$ASSET_NAME")
           if [ "$ACTUAL_SIZE" != "$ASSET_SIZE" ]; then
@@ -264,10 +256,12 @@ jobs:
           VERIFY_URL=$(echo "$UPLOAD_BODY" | jq -er '.verify_url')
 
           # Stream the file with visible progress; retrying a PUT safely replaces the same object.
-          curl --fail-with-body --show-error --location --progress-bar \
+          curl --fail-with-body --show-error --location --progress-meter \
             --connect-timeout 30 --max-time 1200 \
             --retry 3 --retry-delay 5 --retry-all-errors \
-            -X PUT --upload-file "asset/$ASSET_NAME" "$UPLOAD_URL"
+            -X PUT --upload-file "asset/$ASSET_NAME" \
+            --write-out "\nUploaded $ASSET_NAME at %{speed_upload} bytes/s on average\n" \
+            "$UPLOAD_URL"
 
           VERIFY_STATUS=$(curl -sS --fail-with-body --connect-timeout 15 --max-time 120 \
             -o /dev/null -w "%{http_code}" "$VERIFY_URL" -X POST \
