@@ -125,7 +125,9 @@ export class InternalPluginAPI {
       }
 
       // 设置页使用这份 canonical commands 构建 alias 目标列表，不在这里展开 alias 搜索字段。
-      console.log('[Internal] 收到获取指令列表请求（设置页 alias 目标）')
+      // 强制刷新缓存，确保获取最新的指令列表（包括本地启动项）
+      console.log('[Internal] 收到获取指令列表请求（设置页 alias 目标），强制刷新缓存')
+      commandsAPI.invalidateCommandsCache(false)
       const result = await commandsAPI.getCommands()
       console.log('[Internal] 返回指令列表摘要:', {
         commands: result.commands?.length || 0,

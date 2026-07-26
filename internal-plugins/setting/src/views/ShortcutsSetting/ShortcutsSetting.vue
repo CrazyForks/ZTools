@@ -17,6 +17,8 @@ import {
   COMMAND_ALIASES_KEY,
   DIRECT_APP_ALIAS_GROUP_KEY,
   DIRECT_APP_ALIAS_GROUP_TITLE,
+  LOCAL_SHORTCUT_ALIAS_GROUP_KEY,
+  LOCAL_SHORTCUT_ALIAS_GROUP_TITLE,
   getCommandId as _getCommandId,
   normalizeCommandAliases
 } from '@shared/commandShared'
@@ -464,9 +466,50 @@ async function loadAliasTargets(): Promise<void> {
       })
     }
 
+    const addLocalShortcutTarget = (command: any): void => {
+      if (
+        command.type !== 'direct' ||
+        command.subType !== 'local-shortcut' ||
+        !command.path ||
+        !command.name
+      ) {
+        return
+      }
+
+      const commandId = getCommandId({
+        type: 'direct',
+        subType: 'local-shortcut',
+        path: command.path,
+        name: command.name,
+        cmdType: 'text'
+      })
+
+      addTarget({
+        commandId,
+        type: 'direct',
+        subType: 'local-shortcut',
+        path: command.path,
+        groupKey: LOCAL_SHORTCUT_ALIAS_GROUP_KEY,
+        groupTitle: LOCAL_SHORTCUT_ALIAS_GROUP_TITLE,
+        featureCode: command.path,
+        subtitle: command.path,
+        pluginName: LOCAL_SHORTCUT_ALIAS_GROUP_KEY,
+        pluginTitle: LOCAL_SHORTCUT_ALIAS_GROUP_TITLE,
+        cmdName: command.name,
+        cmdType: 'text',
+        icon: command.icon,
+        label: `${LOCAL_SHORTCUT_ALIAS_GROUP_TITLE} / ${command.name}`
+      })
+    }
+
     for (const command of result.commands || []) {
       if (command.type === 'direct' && command.subType === 'app') {
         addDirectAppTarget(command)
+        continue
+      }
+
+      if (command.type === 'direct' && command.subType === 'local-shortcut') {
+        addLocalShortcutTarget(command)
         continue
       }
 
@@ -1008,6 +1051,27 @@ onMounted(() => {
   isWindows.value = platform.includes('win') || userAgent.includes('windows')
 
   void loadShortcuts()
+
+  // 监听本地启动项变化，实时更新可选目标列表
+  if (window.ztools.internal.onLocalShortcutsChanged) {
+    window.ztools.internal.onLocalShortcutsChanged(() => {
+      void loadAliasTargets()
+    })
+  }
+
+  // 监听系统应用变化，实时更新可选目标列表
+  if (window.ztools.internal.onAppsChanged) {
+    window.ztools.internal.onAppsChanged(() => {
+      void loadAliasTargets()
+    })
+  }
+
+  // 监听指令别名变化，实时更新别名列表
+  if (window.ztools.internal.onCommandAliasesChanged) {
+    window.ztools.internal.onCommandAliasesChanged(() => {
+      void loadAliasMappings()
+    })
+  }
 })
 
 useJumpFunction<ShortcutsSettingJumpFunction>(async (state) => {
