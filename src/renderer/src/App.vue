@@ -566,6 +566,10 @@ onMounted(async () => {
     if (timeLimit > 0) {
       try {
         const copiedContent = await window.ztools.getLastCopiedContent(timeLimit)
+        // 由于获取剪贴板的异步等待，此时 currentView 可能已经发生改变
+        if ((currentView.value as ViewMode) === ViewMode.Plugin) {
+          return
+        }
         if (copiedContent) {
           if (copiedContent.type === 'image') {
             // 自动粘贴图片
@@ -584,6 +588,11 @@ onMounted(async () => {
       } catch (error) {
         console.error('自动粘贴失败:', error)
       }
+    }
+
+    // 由于获取剪贴板的异步等待，此时 currentView 可能已经发生改变
+    if ((currentView.value as ViewMode) === ViewMode.Plugin) {
+      return
     }
 
     updateWindowHeight()
