@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useToast } from '@/components'
+import { GITHUB_LATEST_RELEASE_URL, GITHUB_REPOSITORY_URL } from '@shared/updateSource'
 
 const { info, error, confirm } = useToast()
 
@@ -39,9 +40,7 @@ async function handleCheckUpdate(): Promise<void> {
         cancelText: '稍后'
       })
       if (shouldOpenRelease) {
-        window.ztools.shellOpenExternal(
-          result.releaseUrl || 'https://cnb.cool/ZToolsCenter/ZTools/-/releases/latest'
-        )
+        window.ztools.shellOpenExternal(result.releaseUrl || GITHUB_LATEST_RELEASE_URL)
       }
       return
     }
@@ -65,7 +64,7 @@ function openQQGroup(): void {
 }
 
 function openGithub(): void {
-  window.ztools.shellOpenExternal('https://github.com/ZToolsCenter/ZTools')
+  window.ztools.shellOpenExternal(GITHUB_REPOSITORY_URL)
 }
 
 function openSponsor(): void {

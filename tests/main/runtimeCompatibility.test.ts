@@ -6,8 +6,8 @@ import {
 } from '../../src/main/runtimeCompatibility'
 
 describe('checkRuntimeCompatibility', () => {
-  it('uses the CNB latest Release page for blocked runtime migration', () => {
-    expect(FULL_INSTALL_RELEASE_URL).toBe('https://cnb.cool/ZToolsCenter/ZTools/-/releases/latest')
+  it('uses the GitHub latest Release page for blocked runtime migration', () => {
+    expect(FULL_INSTALL_RELEASE_URL).toBe('https://github.com/ZToolsCenter/ZTools/releases/latest')
   })
 
   it.each(['win32', 'darwin'] as const)(

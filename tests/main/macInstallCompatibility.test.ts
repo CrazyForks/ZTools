@@ -16,8 +16,8 @@ const validInstallInfo: MacInstallInfo = {
 }
 
 describe('validateMacInstall', () => {
-  it('uses the CNB latest Release page for complete-install migration', () => {
-    expect(MAC_RELEASE_URL).toBe('https://cnb.cool/ZToolsCenter/ZTools/-/releases/latest')
+  it('uses the GitHub latest Release page for complete-install migration', () => {
+    expect(MAC_RELEASE_URL).toBe('https://github.com/ZToolsCenter/ZTools/releases/latest')
   })
 
   it('accepts a complete signed installation with update configuration', () => {

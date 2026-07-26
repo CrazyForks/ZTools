@@ -2,15 +2,15 @@ import { app } from 'electron'
 import { promises as fs } from 'fs'
 import path from 'path'
 import yaml from 'yaml'
+import { getGitHubReleaseUrl, GITHUB_LATEST_RELEASE_URL } from '@shared/updateSource'
 import { EXPECTED_ELECTRON_VERSION } from '../runtimeCompatibility'
-import { CNB_LATEST_RELEASE_URL, getCnbReleasePageUrl } from '../updateSource'
 
 export const WINDOWS_APP_ID = 'top.z-tools'
 export const WINDOWS_ELECTRON_VERSION = EXPECTED_ELECTRON_VERSION
 export const WINDOWS_UPDATER_TYPE = 'electron-updater-nsis'
 export const WINDOWS_INSTALL_INFO_FILE = 'ztools-install-info.json'
 export const WINDOWS_NSIS_INSTALL_MARKER_FILE = '.ztools-nsis-installed'
-export const WINDOWS_RELEASE_URL = CNB_LATEST_RELEASE_URL
+export const WINDOWS_RELEASE_URL = GITHUB_LATEST_RELEASE_URL
 
 export interface WindowsInstallInfo {
   schemaVersion: number
@@ -28,12 +28,12 @@ export interface WindowsInstallCompatibility {
 }
 
 /**
- * 生成指定 Windows 版本对应的 CNB Release 下载页面地址。
+ * 生成指定 Windows 版本对应的 GitHub Release 下载页面地址。
  * @param version 检查更新返回的目标版本号。
  * @returns 指定版本的 Release 页面地址；版本为空时返回最新正式版页面。
  */
 export function getWindowsReleaseUrl(version?: string): string {
-  return getCnbReleasePageUrl(version)
+  return getGitHubReleaseUrl(version)
 }
 
 /**
