@@ -11,6 +11,32 @@ export interface Command {
   persistedName?: string
 }
 
+export interface PluginUpdateCheckResult {
+  success: boolean
+  updateAvailable: boolean
+  currentVersion?: string
+  latestVersion?: string
+  plugin?: {
+    name: string
+    version: string
+    title?: string
+    logo?: string
+    updatedAt?: number
+  }
+  reason?: string
+  error?: string
+}
+
+export interface PluginMarketDownloadProgress {
+  pluginName: string
+  taskId: string
+  status: 'downloading' | 'installing' | 'success' | 'error' | 'cancelled'
+  progress: number | null
+  receivedBytes?: number
+  totalBytes?: number
+  error?: string
+}
+
 const api = {
   getApps: () => ipcRenderer.invoke('get-apps'),
   getSystemSettings: () => ipcRenderer.invoke('get-system-settings'),
@@ -54,6 +80,46 @@ const api = {
   getDisabledPlugins: () => ipcRenderer.invoke('get-disabled-plugins'),
   killPluginAndReturn: (pluginPath: string) =>
     ipcRenderer.invoke('kill-plugin-and-return', pluginPath),
+  pluginUpdates: {
+    /**
+     * 检查当前插件是否存在市场新版本。
+     * @param pluginName 当前插件名称
+     * @param pluginPath 当前插件物理路径
+     * @returns 更新检查结果
+     */
+    check: (pluginName: string, pluginPath: string): Promise<PluginUpdateCheckResult> =>
+      ipcRenderer.invoke('check-plugin-update', pluginName, pluginPath),
+    /**
+     * 从插件市场升级指定插件。
+     * @param pluginName 需要升级的插件名称
+     * @param pluginPath 当前插件物理路径
+     * @returns 安装结果
+     */
+    upgrade: (pluginName: string, pluginPath: string): Promise<any> =>
+      ipcRenderer.invoke('upgrade-plugin-from-market', pluginName, pluginPath),
+    /**
+     * 打开指定插件的市场详情页。
+     * @param pluginName 需要查看的插件名称
+     * @returns 打开结果
+     */
+    openMarket: (pluginName: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('open-plugin-market-detail', pluginName),
+    /**
+     * 监听当前窗口发起的市场升级进度。
+     * @param callback 接收下载和安装进度的回调函数
+     * @returns 用于移除监听器的清理函数
+     */
+    onProgress: (callback: (payload: PluginMarketDownloadProgress) => void): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        payload: PluginMarketDownloadProgress
+      ): void => callback(payload)
+      ipcRenderer.on('plugin-market-download-progress', handler)
+      return (): void => {
+        ipcRenderer.removeListener('plugin-market-download-progress', handler)
+      }
+    }
+  },
   // mainPush 功能
   queryMainPush: (pluginPath: string, featureCode: string, queryData: any) =>
     ipcRenderer.invoke('query-main-push', pluginPath, featureCode, queryData),
@@ -502,6 +568,20 @@ declare global {
       getAllPlugins: () => Promise<any[]>
       getDisabledPlugins: () => Promise<string[]>
       killPluginAndReturn: (pluginPath: string) => Promise<{ success: boolean; error?: string }>
+      pluginUpdates: {
+        check: (pluginName: string, pluginPath: string) => Promise<PluginUpdateCheckResult>
+        upgrade: (
+          pluginName: string,
+          pluginPath: string
+        ) => Promise<{
+          success: boolean
+          error?: string
+          plugin?: any
+          cancelled?: boolean
+        }>
+        openMarket: (pluginName: string) => Promise<{ success: boolean; error?: string }>
+        onProgress: (callback: (payload: PluginMarketDownloadProgress) => void) => () => void
+      }
       // mainPush 功能
       queryMainPush: (
         pluginPath: string,

@@ -35,6 +35,32 @@ interface SuperPanelWindowInfo {
 
 interface FileLocationWindowInfo extends SuperPanelWindowInfo {}
 
+interface PluginUpdateCheckResult {
+  success: boolean
+  updateAvailable: boolean
+  currentVersion?: string
+  latestVersion?: string
+  plugin?: {
+    name: string
+    version: string
+    title?: string
+    logo?: string
+    updatedAt?: number
+  }
+  reason?: string
+  error?: string
+}
+
+interface PluginMarketDownloadProgress {
+  pluginName: string
+  taskId: string
+  status: 'downloading' | 'installing' | 'success' | 'error' | 'cancelled'
+  progress: number | null
+  receivedBytes?: number
+  totalBytes?: number
+  error?: string
+}
+
 declare global {
   interface Window {
     electron: {
@@ -94,6 +120,20 @@ declare global {
       getAllPlugins: () => Promise<any[]>
       getDisabledPlugins: () => Promise<string[]>
       killPluginAndReturn: (pluginPath: string) => Promise<{ success: boolean; error?: string }>
+      pluginUpdates: {
+        check: (pluginName: string, pluginPath: string) => Promise<PluginUpdateCheckResult>
+        upgrade: (
+          pluginName: string,
+          pluginPath: string
+        ) => Promise<{
+          success: boolean
+          error?: string
+          plugin?: any
+          cancelled?: boolean
+        }>
+        openMarket: (pluginName: string) => Promise<{ success: boolean; error?: string }>
+        onProgress: (callback: (payload: PluginMarketDownloadProgress) => void) => () => void
+      }
       // mainPush 功能
       queryMainPush: (
         pluginPath: string,

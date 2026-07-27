@@ -7,7 +7,10 @@ import hideWindowHtml from '../../../resources/hideWindow.html?asset'
 import mainPreload from '../../../resources/preload.js?asset'
 import api from '../api'
 import { WINDOW_INITIAL_HEIGHT, WINDOW_DEFAULT_HEIGHT, WINDOW_WIDTH } from '../common/constants'
-import detachedWindowManager, { DETACHED_TITLEBAR_HEIGHT } from '../core/detachedWindowManager'
+import detachedWindowManager, {
+  DETACHED_TITLEBAR_HEIGHT,
+  type DetachedPluginUpgradeSnapshot
+} from '../core/detachedWindowManager'
 import { GLOBAL_SCROLLBAR_CSS } from '../core/globalStyles'
 import {
   CUSTOM_INTERNAL_API_PLUGIN_NAMES_KEY,
@@ -82,6 +85,7 @@ interface PluginViewInfo {
   path: string
   name: string
   view: WebContentsView
+  cmdName?: string
   height?: number
   subInputPlaceholder?: string
   subInputValue?: string // 搜索框的值
@@ -95,6 +99,18 @@ interface PluginViewInfo {
 interface PluginLastEnterState {
   featureCode: string
   cmdType: string
+}
+
+export interface PluginUpgradeRelaunchContext {
+  surface: 'main' | 'detached'
+  pluginName: string
+  pluginPath: string
+  featureCode: string
+  cmdName?: string
+  cmdType: string
+  param: any
+  height: number
+  detachedSnapshot?: DetachedPluginUpgradeSnapshot
 }
 
 export class PluginManager {
@@ -538,6 +554,7 @@ export class PluginManager {
     // === 所有 async 操作完成，提交状态 ===
     this.pluginView = view
     this.currentPluginPath = pluginPath
+    cached.cmdName = cmdName || ''
 
     console.log('[Plugin] 插件视图获取焦点')
     view.webContents.focus()
@@ -636,6 +653,7 @@ export class PluginManager {
         path: pluginPath,
         name: effectiveName,
         view: this.pluginView,
+        cmdName: cmdName || '',
         subInputPlaceholder: '搜索',
         subInputVisible: false,
         logo: logoUrl,
@@ -875,6 +893,123 @@ export class PluginManager {
   // 获取当前加载的插件视图
   public getCurrentPluginView(): WebContentsView | null {
     return this.pluginView
+  }
+
+  /**
+   * 保存发起升级的插件重启上下文，并把对应插件区域收起到 0 高度。
+   * @param pluginName 需要升级的插件名称
+   * @param pluginPath 当前插件物理路径
+   * @param webContents 发起升级请求的渲染进程
+   * @returns 可用于升级后重新打开插件的上下文；调用来源不匹配时返回 null
+   */
+  public collapseCurrentPluginForUpgrade(
+    pluginName: string,
+    pluginPath: string,
+    webContents?: WebContents
+  ): PluginUpgradeRelaunchContext | null {
+    // 独立标题栏发起升级时，保存其窗口尺寸并只收起对应的插件内容区。
+    const detachedSnapshot = webContents
+      ? detachedWindowManager.collapsePluginForUpgrade(pluginName, pluginPath, webContents)
+      : null
+    if (detachedSnapshot) {
+      const lastEnterState = this.pluginLastEnterState.get(pluginPath)
+      return {
+        surface: 'detached',
+        pluginName,
+        pluginPath,
+        featureCode: lastEnterState?.featureCode || '',
+        cmdType: lastEnterState?.cmdType || api.getLaunchParam()?.type || 'text',
+        param: api.getLaunchParam() || {},
+        height: detachedSnapshot.viewHeight,
+        detachedSnapshot
+      }
+    }
+
+    if (
+      !this.pluginView ||
+      this.currentPluginPath !== pluginPath ||
+      this.pluginViews.find((plugin) => plugin.path === pluginPath)?.name !== pluginName
+    ) {
+      return null
+    }
+
+    // 在安装器销毁旧视图前保存原指令和高度，避免升级完成后丢失进入状态。
+    const cached = this.pluginViews.find((plugin) => plugin.path === pluginPath)
+    const lastEnterState = this.pluginLastEnterState.get(pluginPath)
+    const currentBounds = this.pluginView.getBounds()
+    const height =
+      currentBounds.height > 0
+        ? currentBounds.height
+        : cached?.height && cached.height > 0
+          ? cached.height
+          : this.pluginDefaultHeight
+    const context: PluginUpgradeRelaunchContext = {
+      surface: 'main',
+      pluginName,
+      pluginPath,
+      featureCode: lastEnterState?.featureCode || '',
+      cmdName: cached?.cmdName,
+      cmdType: lastEnterState?.cmdType || api.getLaunchParam()?.type || 'text',
+      param: api.getLaunchParam() || {},
+      height
+    }
+
+    // 保留主搜索栏和升级进度，同时彻底隐藏即将被替换的插件内容。
+    this.setExpendHeight(0, false)
+    return context
+  }
+
+  /**
+   * 升级结束后恢复仍存活的旧视图，或按保存的进入状态重新启动插件。
+   * @param context 升级开始前保存的插件进入上下文
+   * @param pluginPath 安装完成后应打开的插件物理路径
+   * @param installSucceeded 市场安装是否成功完成
+   * @returns 恢复或重新启动结果
+   */
+  public async reopenPluginAfterUpgrade(
+    context: PluginUpgradeRelaunchContext,
+    pluginPath: string,
+    installSucceeded: boolean
+  ): Promise<{ success: boolean; error?: string }> {
+    if (context.surface === 'detached' && context.detachedSnapshot) {
+      // 安装器通过延迟关闭发布 PluginOut，等待旧独立窗口完成清理后再决定恢复或重建。
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, PLUGIN_OUT_GRACE_MS + 20)
+      })
+
+      // 下载或安装失败且旧窗口仍存活时，原地恢复以保留窗口位置和焦点。
+      if (
+        !installSucceeded &&
+        detachedWindowManager.restorePluginAfterFailedUpgrade(context.detachedSnapshot)
+      ) {
+        return { success: true }
+      }
+
+      // 发布成功或旧窗口已退出时，始终重新创建独立窗口并复用升级前的进入参数。
+      return await this.createPluginInDetachedWindow(
+        pluginPath,
+        context.featureCode,
+        context.param as EnterPayload
+      )
+    }
+
+    if (this.pluginView && this.currentPluginPath === pluginPath) {
+      // 下载或安装失败但旧视图仍存活时，直接恢复原高度和焦点。
+      this.setExpendHeight(context.height, false)
+      this.pluginView.webContents.focus()
+      this.forceRepaintView(this.pluginView)
+      return { success: true }
+    }
+
+    // 旧视图已被安装器销毁时，从当前注册路径创建新版本视图。
+    return await api.launchPlugin({
+      path: pluginPath,
+      type: 'plugin',
+      featureCode: context.featureCode || undefined,
+      param: context.param,
+      name: context.cmdName,
+      cmdType: context.cmdType
+    })
   }
 
   /**
@@ -1718,11 +1853,13 @@ export class PluginManager {
    * 直接在独立窗口中创建插件（用于自动分离模式）
    * @param pluginPath 插件路径
    * @param featureCode 功能代码
+   * @param enterParam 插件进入参数；省略时读取当前全局启动参数
    * @returns 创建结果
    */
   public async createPluginInDetachedWindow(
     pluginPath: string,
-    featureCode: string
+    featureCode: string,
+    enterParam?: EnterPayload
   ): Promise<{ success: boolean; error?: string }> {
     try {
       console.log('[Plugin] 直接在独立窗口中创建插件:', { pluginPath, featureCode })
@@ -1791,8 +1928,9 @@ export class PluginManager {
 
       pluginView.webContents.on('did-finish-load', () => {
         pluginView.webContents.insertCSS(GLOBAL_SCROLLBAR_CSS)
+        // 升级重开时优先使用快照，避免其他启动动作覆盖插件原进入参数。
         const enterPayload = this.assemblyCoordinator.buildEnterPayload(
-          api.getLaunchParam() as EnterPayload
+          enterParam ?? (api.getLaunchParam() as EnterPayload)
         )
         void this.assemblyCoordinator.dispatchLifecycleEvent(
           pluginView,

@@ -89,12 +89,22 @@ export function validateWindowsInstall(
  * @returns Windows 安装类型及其更新兼容性结果。
  */
 export async function getWindowsInstallCompatibility(): Promise<WindowsInstallCompatibility> {
-  if (process.platform !== 'win32' || !app.isPackaged) {
+  if (process.platform !== 'win32') {
     return {
       compatible: false,
       portable: false,
       migrationRequired: false,
-      reasons: ['当前不是 Windows 安装版']
+      reasons: ['当前不是 Windows 平台']
+    }
+  }
+
+  // 开发环境只复用更新器的版本检查能力，不将本地运行目录识别为便携版。
+  if (!app.isPackaged) {
+    return {
+      compatible: true,
+      portable: false,
+      migrationRequired: false,
+      reasons: []
     }
   }
 

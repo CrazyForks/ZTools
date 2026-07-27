@@ -158,6 +158,23 @@ export type PluginMarketResult = {
   error?: string
 }
 
+export type PluginMarketLatestResult = {
+  available: boolean
+  reason?: 'not_found' | 'unsupported_platform'
+  plugin?: PluginMarketPlugin
+}
+
+type PluginMarketLatestResponse = {
+  available?: boolean
+  reason?: 'not_found' | 'unsupported_platform'
+  plugin?: PluginMarketPlugin
+}
+
+type PluginMarketLatestCacheEntry = {
+  expiresAt: number
+  result: PluginMarketLatestResult
+}
+
 // ━━━ Constants ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** storefront 视图数据在 LMDB 中的缓存键 */
@@ -165,6 +182,8 @@ const PLUGIN_MARKET_STOREFRONT_CACHE_KEY = 'plugin-market-storefront'
 /** storefront 指纹在 LMDB 中的缓存键，用于判断缓存是否失效 */
 const PLUGIN_MARKET_STOREFRONT_FINGERPRINT_CACHE_KEY = 'plugin-market-storefront-fingerprint'
 const PLUGIN_MARKET_RECOMMEND_LIMIT = 12
+const PLUGIN_MARKET_LATEST_CACHE_MS = 5 * 60 * 1000
+const PLUGIN_MARKET_LATEST_UNAVAILABLE_CACHE_MS = 60 * 1000
 
 // ━━━ PluginMarketAPI ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -173,6 +192,9 @@ const PLUGIN_MARKET_RECOMMEND_LIMIT = 12
  * 负责从 ZTools 线上市场获取插件列表、缓存管理和首页 storefront 视图数据构建。
  */
 export class PluginMarketAPI {
+  private latestPluginCache = new Map<string, PluginMarketLatestCacheEntry>()
+  private latestPluginRequests = new Map<string, Promise<PluginMarketLatestResult>>()
+
   /**
    * 获取插件市场列表。
    * 缓存策略：
@@ -245,6 +267,76 @@ export class PluginMarketAPI {
       }
       return { success: false, error: error instanceof Error ? error.message : '获取失败' }
     }
+  }
+
+  /**
+   * 获取单个插件在当前平台可用的市场最新版本，并合并并发请求及短期缓存结果。
+   * @param pluginName 插件唯一名称
+   * @param platform 目标运行平台
+   * @returns 市场可用状态和最新插件元数据
+   * @throws 当插件名无效或市场请求失败时抛出错误
+   */
+  public async fetchLatestPlugin(
+    pluginName: string,
+    platform = process.platform
+  ): Promise<PluginMarketLatestResult> {
+    const normalizedName = pluginName.trim()
+    if (!normalizedName) {
+      throw new Error('插件名称不能为空')
+    }
+
+    const cacheKey = `${platform}:${normalizedName}`
+    const cached = this.latestPluginCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.result
+    }
+
+    const pending = this.latestPluginRequests.get(cacheKey)
+    if (pending) return pending
+
+    // 同一插件的同时检查共享一次网络请求，避免频繁切换视图造成重复查询。
+    const request = this.loadLatestPlugin(normalizedName, platform).then((result) => {
+      const ttl = result.available
+        ? PLUGIN_MARKET_LATEST_CACHE_MS
+        : PLUGIN_MARKET_LATEST_UNAVAILABLE_CACHE_MS
+      this.latestPluginCache.set(cacheKey, { expiresAt: Date.now() + ttl, result })
+      return result
+    })
+    this.latestPluginRequests.set(cacheKey, request)
+    try {
+      return await request
+    } finally {
+      if (this.latestPluginRequests.get(cacheKey) === request) {
+        this.latestPluginRequests.delete(cacheKey)
+      }
+    }
+  }
+
+  /**
+   * 请求服务端的单插件最新版本接口并校验响应结构。
+   * @param pluginName 插件唯一名称
+   * @param platform 目标运行平台
+   * @returns 服务端返回的市场可用状态和插件元数据
+   * @throws 当响应声明可用却缺少有效插件信息时抛出错误
+   */
+  private async loadLatestPlugin(
+    pluginName: string,
+    platform: string
+  ): Promise<PluginMarketLatestResult> {
+    const query = new URLSearchParams({ name: pluginName })
+    if (platform) query.set('platform', platform)
+
+    const response = await requestPluginMarket(`/plugins/latest?${query.toString()}`)
+    const data = (
+      typeof response.data === 'string' ? JSON.parse(response.data) : response.data
+    ) as PluginMarketLatestResponse
+    if (!data?.available) {
+      return { available: false, reason: data?.reason }
+    }
+    if (!data.plugin?.name || !data.plugin.version) {
+      throw new Error('市场最新版本响应无效')
+    }
+    return { available: true, plugin: data.plugin }
   }
 
   public async fetchPluginMarketRecommendations(

@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { getPreloadPath, getRendererPath } from '../utils/appBundlePath'
 import createPlatformUpdater from '@platform-updater'
@@ -142,11 +142,18 @@ export class UpdaterAPI {
     }
   }
 
+  /**
+   * 安装已下载的更新，开发环境则显示不支持升级的提示。
+   * @returns 安装流程启动结果。
+   */
   private async installDownloadedUpdate(): Promise<{
     success: boolean
     migrationRequired?: boolean
     error?: string
   }> {
+    // 任何安装入口都不得在未打包运行时替换开发中的应用。
+    if (!app.isPackaged) return this.rejectDevelopmentUpdate()
+
     await this.initializationPromise
     if (!this.platformUpdater) return { success: false, error: '更新器尚未初始化' }
     return this.platformUpdater.installDownloadedUpdate()
@@ -176,16 +183,50 @@ export class UpdaterAPI {
     return result
   }
 
+  /**
+   * 下载并安装当前可用更新，开发环境则显示不支持升级的提示。
+   * @returns 更新流程启动结果。
+   */
   public async startUpdate(): Promise<{
     success: boolean
     migrationRequired?: boolean
     error?: string
   }> {
+    // 检查更新可在开发环境运行，但下载和安装必须依赖完整打包产物。
+    if (!app.isPackaged) return this.rejectDevelopmentUpdate()
+
     await this.initializationPromise
     if (!this.platformUpdater) return { success: false, error: '更新器尚未初始化' }
     const updateInfo = this.availableUpdateInfo ?? this.downloadedUpdateInfo
     if (!updateInfo) return { success: false, error: '没有可用的更新' }
     return this.platformUpdater.startUpdate(updateInfo)
+  }
+
+  /**
+   * 显示开发环境不支持升级的原生提示并返回失败结果。
+   * @returns 固定的开发环境升级失败结果。
+   */
+  private async rejectDevelopmentUpdate(): Promise<{ success: false; error: string }> {
+    const error = '开发环境不支持升级'
+    const options: Electron.MessageBoxOptions = {
+      type: 'info',
+      title: 'ZTools',
+      message: error,
+      buttons: ['知道了'],
+      defaultId: 0,
+      noLink: true
+    }
+    const parentWindow =
+      this.updateWindow && !this.updateWindow.isDestroyed() ? this.updateWindow : this.mainWindow
+
+    // 优先绑定更新窗口，避免原生对话框被其他窗口遮挡。
+    if (parentWindow && !parentWindow.isDestroyed()) {
+      await dialog.showMessageBox(parentWindow, options)
+    } else {
+      await dialog.showMessageBox(options)
+    }
+
+    return { success: false, error }
   }
 
   private showUpdateWindow(): { success: boolean; error?: string } {

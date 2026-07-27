@@ -75,8 +75,13 @@ export function validateMacInstall(
  * @returns macOS 安装兼容性结果。
  */
 export async function getMacInstallCompatibility(): Promise<MacInstallCompatibility> {
-  if (process.platform !== 'darwin' || !app.isPackaged) {
-    return { compatible: false, migrationRequired: false, reasons: ['当前不是 macOS 安装版'] }
+  if (process.platform !== 'darwin') {
+    return { compatible: false, migrationRequired: false, reasons: ['当前不是 macOS 平台'] }
+  }
+
+  // 开发环境允许初始化更新器以检查远程版本，下载安装由操作入口统一拦截。
+  if (!app.isPackaged) {
+    return { compatible: true, migrationRequired: false, reasons: [] }
   }
 
   const installInfoPath = path.join(process.resourcesPath, MAC_INSTALL_INFO_FILE)

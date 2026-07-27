@@ -163,9 +163,47 @@
           <span aria-hidden="true">&times;</span>
         </button>
       </div>
+      <!-- 当前插件存在市场新版本时显示，展开层向左覆盖以避免右侧图标位移。 -->
+      <div v-if="hasPluginUpdate" class="plugin-upgrade-slot">
+        <div
+          class="plugin-upgrade-control"
+          :class="{
+            upgrading: pluginUpdateStatus === 'upgrading',
+            error: pluginUpdateStatus === 'error'
+          }"
+          :title="pluginUpgradeTitle"
+        >
+          <div class="plugin-upgrade-actions">
+            <button
+              type="button"
+              class="plugin-upgrade-action market-action"
+              :disabled="pluginUpdateStatus === 'upgrading'"
+              @click.stop="handleOpenPluginMarket"
+            >
+              进入市场查看
+            </button>
+            <button
+              type="button"
+              class="plugin-upgrade-action upgrade-now-action"
+              :disabled="pluginUpdateStatus === 'upgrading'"
+              @click.stop="handleUpgradePlugin"
+            >
+              {{ pluginUpgradeActionText }}
+            </button>
+          </div>
+          <button
+            type="button"
+            class="plugin-upgrade-trigger"
+            :aria-label="pluginUpgradeTitle"
+            @click.stop
+          >
+            <PluginUpgradeIcon />
+          </button>
+        </div>
+      </div>
       <!-- 头像按钮（无更新或插件模式时显示） -->
       <div
-        v-else
+        v-if="!windowStore.shouldShowUpdateNotification"
         class="avatar-wrapper"
         :class="{
           loading: isPluginLoading,
@@ -224,6 +262,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import PluginUpgradeIcon from '@renderer/assets/icons/plugin-upgrade.svg?component'
 import { normalizeConfigList } from '@shared/pluginSettings'
 import { DEFAULT_AVATAR, useWindowStore } from '../../stores/windowStore'
 import AdaptiveIcon from '../common/AdaptiveIcon.vue'
@@ -234,6 +273,18 @@ interface FileItem {
   path: string
   name: string
   isDirectory: boolean
+}
+
+type PluginUpdateStatus = 'idle' | 'available' | 'upgrading' | 'error'
+
+interface PluginMarketDownloadProgress {
+  pluginName: string
+  taskId: string
+  status: 'downloading' | 'installing' | 'success' | 'error' | 'cancelled'
+  progress: number | null
+  receivedBytes?: number
+  totalBytes?: number
+  error?: string
 }
 
 const props = defineProps<{
@@ -336,6 +387,143 @@ const isDefaultAvatar = computed(() => {
 })
 
 const isPluginLoading = computed(() => windowStore.pluginLoading)
+const pluginUpdateStatus = ref<PluginUpdateStatus>('idle')
+const pluginUpdateName = ref('')
+const pluginCurrentVersion = ref('')
+const pluginLatestVersion = ref('')
+const pluginUpgradeProgress = ref<number | null>(null)
+const pluginUpgradeError = ref('')
+let pluginUpdateRequestSequence = 0
+
+const hasPluginUpdate = computed(
+  () =>
+    !!windowStore.currentPlugin &&
+    pluginUpdateName.value === windowStore.currentPlugin.name &&
+    pluginUpdateStatus.value !== 'idle'
+)
+const pluginUpgradeActionText = computed(() => {
+  if (pluginUpdateStatus.value === 'error') return '重试升级'
+  if (pluginUpdateStatus.value !== 'upgrading') return '立即升级'
+  if (pluginUpgradeProgress.value != null) {
+    return `升级 ${Math.round(pluginUpgradeProgress.value)}%`
+  }
+  return '正在安装'
+})
+const pluginUpgradeTitle = computed(() => {
+  if (pluginUpgradeError.value) return pluginUpgradeError.value
+  return `发现新版本 ${pluginLatestVersion.value}，当前版本 ${pluginCurrentVersion.value}`
+})
+
+/**
+ * 清空当前插件的更新展示状态。
+ * @returns 无返回值
+ */
+function resetPluginUpdateState(): void {
+  pluginUpdateStatus.value = 'idle'
+  pluginUpdateName.value = ''
+  pluginCurrentVersion.value = ''
+  pluginLatestVersion.value = ''
+  pluginUpgradeProgress.value = null
+  pluginUpgradeError.value = ''
+}
+
+/**
+ * 异步检查当前插件的市场版本，并丢弃插件切换后到达的过期响应。
+ * @returns 检查完成后结束的 Promise
+ */
+async function checkCurrentPluginUpdate(): Promise<void> {
+  const plugin = windowStore.currentPlugin
+  const requestSequence = ++pluginUpdateRequestSequence
+  resetPluginUpdateState()
+  if (!plugin) return
+
+  try {
+    const result = await window.ztools.pluginUpdates.check(plugin.name, plugin.path)
+    // 插件切换后不允许旧请求覆盖新插件的界面状态。
+    if (
+      requestSequence !== pluginUpdateRequestSequence ||
+      windowStore.currentPlugin?.name !== plugin.name ||
+      windowStore.currentPlugin?.path !== plugin.path
+    ) {
+      return
+    }
+    if (!result.success || !result.updateAvailable || !result.latestVersion) return
+
+    pluginUpdateName.value = plugin.name
+    pluginCurrentVersion.value = result.currentVersion || ''
+    pluginLatestVersion.value = result.latestVersion
+    pluginUpdateStatus.value = 'available'
+  } catch (error: unknown) {
+    // 更新检查失败不应干扰插件正常打开，只保留调试日志。
+    console.debug('[PluginUpdate] 检查更新失败:', error)
+  }
+}
+
+/**
+ * 打开当前插件对应的市场详情页。
+ * @returns 操作完成后结束的 Promise
+ */
+async function handleOpenPluginMarket(): Promise<void> {
+  const pluginName = pluginUpdateName.value
+  if (!pluginName || pluginUpdateStatus.value === 'upgrading') return
+
+  try {
+    const result = await window.ztools.pluginUpdates.openMarket(pluginName)
+    if (!result.success) {
+      alert(`打开插件市场失败: ${result.error || '未知错误'}`)
+    }
+  } catch (error: unknown) {
+    alert(`打开插件市场失败: ${error instanceof Error ? error.message : '未知错误'}`)
+  }
+}
+
+/**
+ * 立即下载并安装当前插件的市场最新版本。
+ * @returns 升级完成后结束的 Promise
+ */
+async function handleUpgradePlugin(): Promise<void> {
+  const pluginName = pluginUpdateName.value
+  const pluginPath = windowStore.currentPlugin?.path
+  if (!pluginName || !pluginPath || pluginUpdateStatus.value === 'upgrading') return
+
+  // 安装器会先准备新实体，发布前才停止当前插件。
+  pluginUpdateStatus.value = 'upgrading'
+  pluginUpgradeProgress.value = null
+  pluginUpgradeError.value = ''
+  try {
+    const result = await window.ztools.pluginUpdates.upgrade(pluginName, pluginPath)
+    if (!result.success) {
+      pluginUpdateStatus.value = 'error'
+      pluginUpgradeError.value = result.error || '升级失败'
+      alert(`插件升级失败: ${pluginUpgradeError.value}`)
+    } else {
+      resetPluginUpdateState()
+    }
+  } catch (error: unknown) {
+    pluginUpdateStatus.value = 'error'
+    pluginUpgradeError.value = error instanceof Error ? error.message : '升级失败'
+    alert(`插件升级失败: ${pluginUpgradeError.value}`)
+  }
+}
+
+/**
+ * 将主进程发送的市场下载进度同步到当前升级控件。
+ * @param payload 下载或安装阶段的进度数据
+ * @returns 无返回值
+ */
+function handlePluginUpgradeProgress(payload: PluginMarketDownloadProgress): void {
+  if (payload.pluginName !== pluginUpdateName.value) return
+
+  if (payload.status === 'downloading') {
+    pluginUpgradeProgress.value = payload.progress
+  } else if (payload.status === 'installing') {
+    pluginUpgradeProgress.value = null
+  } else if (payload.status === 'error' || payload.status === 'cancelled') {
+    pluginUpdateStatus.value = 'error'
+    pluginUpgradeError.value =
+      payload.error || (payload.status === 'cancelled' ? '升级已取消' : '升级失败')
+  }
+}
 
 // Tab 键功能提示文字
 const tabHintText = computed(() => {
@@ -833,12 +1021,14 @@ watch(
   () => windowStore.currentPlugin,
   () => {
     updateInputWidth()
+    void checkCurrentPluginUpdate()
   }
 )
 
 // 用于清理的 ResizeObserver
 let resizeObserver: ResizeObserver | null = null
 let cleanupContextMenuListener: (() => void) | null = null
+let cleanupPluginUpdateProgressListener: (() => void) | null = null
 
 onMounted(() => {
   // 初始化输入框宽度（updateInputWidth 内部会根据是否有内容来决定宽度）
@@ -866,6 +1056,12 @@ onMounted(() => {
   window.ztools.onAiStatusChanged?.((status: 'idle' | 'sending' | 'receiving') => {
     windowStore.setAiRequestStatus(status)
   })
+
+  // 升级进度只监听当前主窗口发起的市场安装任务。
+  cleanupPluginUpdateProgressListener = window.ztools.pluginUpdates.onProgress(
+    handlePluginUpgradeProgress
+  )
+  void checkCurrentPluginUpdate()
 
   // 监听菜单命令
   cleanupContextMenuListener?.()
@@ -1033,12 +1229,16 @@ function handleDismissUpdateNotification(): void {
 }
 
 onUnmounted(() => {
+  // 使仍在途中的版本查询结果失效。
+  pluginUpdateRequestSequence++
   resizeObserver?.disconnect()
   cleanupDrag()
 
   // 清理右键菜单命令监听
   cleanupContextMenuListener?.()
   cleanupContextMenuListener = null
+  cleanupPluginUpdateProgressListener?.()
+  cleanupPluginUpdateProgressListener = null
 
   // 清理拖放事件监听
   if (searchBoxRef.value) {
@@ -1417,6 +1617,146 @@ defineExpose({
   -webkit-app-region: no-drag; /* 头像区域不可拖动 */
 }
 
+.plugin-upgrade-slot {
+  position: relative;
+  z-index: 4;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+}
+
+.plugin-upgrade-control {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  transition:
+    width 0.16s ease,
+    background-color 0.12s ease,
+    border-color 0.18s ease,
+    color 0.12s ease;
+}
+
+.plugin-upgrade-control:hover,
+.plugin-upgrade-control:focus-within,
+.plugin-upgrade-control.upgrading,
+.plugin-upgrade-control.error {
+  width: 198px;
+  border-color: color-mix(in srgb, var(--text-color) 10%, transparent);
+  background: var(--control-bg);
+}
+
+.plugin-upgrade-actions {
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+}
+
+.plugin-upgrade-control:hover .plugin-upgrade-actions,
+.plugin-upgrade-control:focus-within .plugin-upgrade-actions,
+.plugin-upgrade-control.upgrading .plugin-upgrade-actions,
+.plugin-upgrade-control.error .plugin-upgrade-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.plugin-upgrade-trigger,
+.plugin-upgrade-action {
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-color);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.plugin-upgrade-trigger {
+  width: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  color: var(--primary-color);
+}
+
+.plugin-upgrade-trigger :deep(svg) {
+  width: 18px;
+  height: 18px;
+}
+
+.plugin-upgrade-action {
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.plugin-upgrade-action + .plugin-upgrade-action {
+  border-left: 1px solid color-mix(in srgb, var(--text-color) 9%, transparent);
+}
+
+.plugin-upgrade-trigger {
+  border-left: 1px solid transparent;
+}
+
+.plugin-upgrade-control:hover .plugin-upgrade-trigger,
+.plugin-upgrade-control:focus-within .plugin-upgrade-trigger,
+.plugin-upgrade-control.upgrading .plugin-upgrade-trigger,
+.plugin-upgrade-control.error .plugin-upgrade-trigger {
+  border-left-color: color-mix(in srgb, var(--text-color) 9%, transparent);
+}
+
+.market-action:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.upgrade-now-action {
+  min-width: 76px;
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
+.upgrade-now-action:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.plugin-upgrade-trigger:hover {
+  background: var(--hover-bg);
+}
+
+.plugin-upgrade-control.error {
+  border-color: color-mix(in srgb, #dc2626 24%, transparent);
+}
+
+.plugin-upgrade-control.error .upgrade-now-action {
+  color: #dc2626;
+}
+
+.plugin-upgrade-action:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.plugin-upgrade-trigger:focus-visible,
+.plugin-upgrade-action:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
+}
+
 /* Tab 键目标提示 */
 .tab-target-hint {
   display: flex;
@@ -1449,9 +1789,10 @@ defineExpose({
 }
 
 .update-notification {
+  position: relative;
   display: flex;
   align-items: center;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 8px;
   background: rgba(16, 185, 129, 0.1);
   transition: background 0.2s;
@@ -1483,19 +1824,36 @@ defineExpose({
 }
 
 .update-dismiss {
+  position: absolute;
+  z-index: 1;
+  top: -5px;
+  right: -5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  margin-right: 7px;
-  border-radius: 6px;
-  font-size: 20px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 4px;
+  font-size: 16px;
   line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.85);
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
+}
+
+.update-notification:hover .update-dismiss,
+.update-dismiss:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
 }
 
 .update-dismiss:hover {
-  background: rgba(16, 185, 129, 0.16);
+  background: rgba(16, 185, 129, 0.24);
 }
 
 .update-action:focus-visible,

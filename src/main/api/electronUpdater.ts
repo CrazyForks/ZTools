@@ -1,4 +1,5 @@
 import path from 'path'
+import { app } from 'electron'
 import log from 'electron-log'
 import { NsisUpdater, autoUpdater, type UpdateInfo } from 'electron-updater'
 import type {
@@ -67,6 +68,9 @@ export class ElectronUpdaterService {
     autoUpdater.autoRunAppAfterInstall = true
     autoUpdater.allowPrerelease = autoUpdater.currentVersion.prerelease.length > 0
     autoUpdater.disableDifferentialDownload = false
+
+    // 未打包运行时读取 dev-app-update.yml，仅用于检查 GitHub Release。
+    autoUpdater.forceDevUpdateConfig = !app.isPackaged
 
     // 将 electron-updater 状态映射到应用现有的更新状态机。
     autoUpdater.on('checking-for-update', () => {

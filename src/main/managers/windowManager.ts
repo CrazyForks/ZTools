@@ -1417,6 +1417,60 @@ class WindowManager {
   }
 
   /**
+   * 打开设置插件中的指定插件市场详情页。
+   * @param pluginName 需要展示详情的插件名称
+   * @returns 打开结果；无法启动设置插件时包含错误信息
+   */
+  public async showPluginMarketDetail(
+    pluginName: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const normalizedName = pluginName.trim()
+    if (!this.mainWindow || !normalizedName) {
+      return { success: false, error: '无效的插件名称' }
+    }
+
+    // 切换到设置插件前释放当前插件视图，避免两个插件视图重叠。
+    if (pluginManager.getCurrentPluginPath() !== null) {
+      pluginManager.hidePluginView()
+      this.notifyBackToSearch()
+    }
+
+    try {
+      const settingPlugin = this.findSettingPlugin()
+      if (!settingPlugin) {
+        return { success: false, error: '未找到设置插件' }
+      }
+
+      // 复用设置插件现有的市场详情跳转事件协议。
+      const result = await api.launchPlugin({
+        path: settingPlugin.path,
+        type: 'plugin',
+        featureCode: 'function.plugin-market-search',
+        name: '插件市场',
+        cmdType: 'over',
+        param: {
+          code: 'function.plugin-market-search',
+          type: 'detail',
+          payload: normalizedName
+        }
+      })
+      if (!result.success) {
+        return { success: false, error: result.error || '打开插件市场失败' }
+      }
+
+      this.moveWindowToCursor()
+      this.forceActivateWindow()
+      return { success: true }
+    } catch (error: unknown) {
+      console.error('[Window] 打开插件市场详情失败:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '打开插件市场失败'
+      }
+    }
+  }
+
+  /**
    * 从数据库查找 setting 插件
    */
   private findSettingPlugin(): any {
