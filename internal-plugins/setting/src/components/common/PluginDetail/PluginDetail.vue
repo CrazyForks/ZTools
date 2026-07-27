@@ -112,7 +112,6 @@ function onSwitchTab(tabId: TabId): void {
         :is-running="isRunning"
         :is-development="plugin.isDevelopment"
         :installed="plugin.installed"
-        :can-upgrade="canUpgrade"
         :is-pinned="isPinned"
         :is-disabled="isDisabled"
         :show-pin-button="showPinButton"

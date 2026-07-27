@@ -3,7 +3,6 @@ defineProps<{
   isRunning?: boolean
   isDevelopment?: boolean
   installed?: boolean
-  canUpgrade: boolean
   // 已安装插件特有
   isPinned?: boolean
   isDisabled?: boolean
@@ -42,7 +41,7 @@ function handleDisabledToggle(event: Event): void {
 </script>
 
 <template>
-  <template v-if="installed && !canUpgrade">
+  <template v-if="installed">
     <button
       class="icon-btn topbar-action-btn open-btn"
       title="打开"

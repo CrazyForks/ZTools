@@ -43,7 +43,7 @@ const selectedPlugin = ref<any | null>(null)
 const npmInstallPanelRef = ref<InstanceType<typeof NpmInstallPanel>>()
 
 // 过滤状态
-const filterStatus = ref<'all' | 'running'>('all')
+const filterStatus = ref<'all' | 'running' | 'upgradable'>('all')
 
 // 置顶列表（插件 path 有序数组，持久化到 db）
 const PINNED_PLUGINS_KEY = 'plugin-center-pinned'
@@ -79,15 +79,25 @@ const upgradablePlugins = computed(() => {
   return plugins.value.filter((p) => p.hasUpdate && p.marketPlugin)
 })
 
+// 可更新插件列表（经过搜索过滤，用于「更新」栏目）
+const upgradableFilteredPlugins = computed(() => {
+  return searchFilteredPlugins.value.filter((p) => p.hasUpdate && p.marketPlugin)
+})
+
+// 「更新」栏目显示的数量（经过搜索过滤）
+const upgradableTabCount = computed(() => upgradableFilteredPlugins.value.length)
+
 // 可升级插件数量（用于菜单显示与批量更新）
 const upgradablePluginsCount = computed(() => upgradablePlugins.value.length)
 
 // 最终显示的插件列表（根据状态过滤，置顶的排在最前）
 const filteredPlugins = computed(() => {
-  let list =
-    filterStatus.value === 'running'
-      ? searchFilteredPlugins.value.filter((p) => isPluginRunning(p.path))
-      : searchFilteredPlugins.value
+  let list = searchFilteredPlugins.value
+  if (filterStatus.value === 'running') {
+    list = list.filter((p) => isPluginRunning(p.path))
+  } else if (filterStatus.value === 'upgradable') {
+    list = upgradableFilteredPlugins.value
+  }
   const pinnedOrder = pinnedPluginPaths.value
   if (pinnedOrder.length === 0) return list
   const pinnedSet = new Set(pinnedOrder)
@@ -155,7 +165,10 @@ function buildPluginList(installedPlugins: any[], marketPluginMap?: Map<string, 
         localVersion: plugin.version,
         latestVersion: market?.version,
         marketPlugin: market,
-        hasUpdate: !!market?.version && compareVersions(plugin.version, market.version) < 0
+        hasUpdate:
+          !plugin.isDevelopment &&
+          !!market?.version &&
+          compareVersions(plugin.version, market.version) < 0
       }
     })
     .sort((a: any, b: any) => {
@@ -706,11 +719,18 @@ async function handleInstallFromNpm(data: {
               运行中
               <span class="tab-count">{{ runningPluginsCount }}</span>
             </button>
+            <button
+              class="tab-btn"
+              :class="{ active: filterStatus === 'upgradable' }"
+              @click="filterStatus = 'upgradable'"
+            >
+              更新
+              <span class="tab-count" :class="{ 'tab-count-update': upgradableTabCount > 0 }">
+                {{ upgradableTabCount }}
+              </span>
+            </button>
           </div>
           <div class="button-group">
-            <button class="btn" :disabled="isImporting" @click="importPlugin">
-              {{ isImporting ? '导入中...' : '导入本地插件' }}
-            </button>
             <div class="more-menu-wrapper">
               <button class="btn btn-more" @click="toggleMoreMenu">
                 更多
@@ -729,6 +749,24 @@ async function handleInstallFromNpm(data: {
                 </svg>
               </button>
               <div v-if="showMoreMenu" class="more-menu" @click="closeMoreMenu">
+                <button class="more-menu-item" :disabled="isImporting" @click="importPlugin">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path
+                      d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+                    ></path>
+                  </svg>
+                  {{ isImporting ? '导入中...' : '导入本地插件' }}
+                </button>
                 <button
                   class="more-menu-item"
                   :disabled="isImportingNpm"
@@ -835,6 +873,11 @@ async function handleInstallFromNpm(data: {
               />
               <div v-else class="plugin-icon-placeholder">🧩</div>
               <span v-if="plugin.isDevelopment" class="plugin-dev-badge">DEV</span>
+              <span
+                v-if="plugin.hasUpdate"
+                class="plugin-update-dot"
+                :title="`有新版本 v${plugin.latestVersion}`"
+              ></span>
             </div>
 
             <div class="plugin-info">
@@ -945,9 +988,27 @@ async function handleInstallFromNpm(data: {
             <div class="empty-hint">点击"导入本地插件"来安装你的第一个插件</div>
           </div>
 
+          <!-- 更新栏目为空 -->
+          <div
+            v-else-if="
+              !isLoading &&
+              plugins.length > 0 &&
+              filteredPlugins.length === 0 &&
+              filterStatus === 'upgradable' &&
+              !searchQuery
+            "
+            class="empty-state"
+          >
+            <div class="i-z-plugin empty-icon font-size-64px" />
+            <div class="empty-text">
+              {{ isCheckingMarketUpdates ? '正在检测更新...' : '全部插件均为最新版本' }}
+            </div>
+            <div v-if="!isCheckingMarketUpdates" class="empty-hint">有新版本的插件会出现在这里</div>
+          </div>
+
           <!-- 搜索无结果 -->
           <div
-            v-if="!isLoading && plugins.length > 0 && filteredPlugins.length === 0"
+            v-else-if="!isLoading && plugins.length > 0 && filteredPlugins.length === 0"
             class="empty-state"
           >
             <div class="i-z-plugin empty-icon font-size-64px" />
@@ -1101,6 +1162,12 @@ async function handleInstallFromNpm(data: {
   color: var(--primary-color);
 }
 
+.tab-count.tab-count-update,
+.tab-btn.active .tab-count.tab-count-update {
+  background: var(--danger-color, #ef4444);
+  color: #fff;
+}
+
 .button-group {
   display: flex;
   gap: 10px;
@@ -1197,6 +1264,18 @@ async function handleInstallFromNpm(data: {
   font-weight: 700;
   line-height: 1;
   padding: 2px 4px;
+}
+
+.plugin-update-dot {
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger-color, #ef4444);
+  border: 1.5px solid var(--bg-color);
 }
 
 .disabled-badge {
