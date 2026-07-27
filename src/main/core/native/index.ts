@@ -66,6 +66,28 @@ export interface FileLocationWindowInfo {
   url?: string
 }
 
+/** 区域截图选项 */
+export interface ScreenCaptureOptions {
+  /**
+   * 选区确定后直接出图，跳过编辑态（工具栏/标注）。
+   * 默认 true：框选/点选完成即出图；传 false 才进入编辑态。
+   */
+  autoConfirm?: boolean
+}
+
+/** 区域截图结果 */
+export interface ScreenCaptureResult {
+  success: boolean
+  width?: number
+  height?: number
+  /** 截图左上角 x 坐标（成功时，macOS 暂不支持） */
+  x?: number
+  /** 截图左上角 y 坐标（成功时，macOS 暂不支持） */
+  y?: number
+  /** 截图 PNG 的 base64（成功时） */
+  base64?: string
+}
+
 interface NativeAddon {
   startMonitor: (callback: () => void) => void
   stopMonitor: () => void
@@ -88,7 +110,8 @@ interface NativeAddon {
     callback: (result: { success: boolean; width?: number; height?: number }) => void
   ) => void
   startRegionCaptureWithPrimedFrame: (
-    callback: (result: { success: boolean; width?: number; height?: number }) => void
+    options: ScreenCaptureOptions,
+    callback: (result: ScreenCaptureResult) => void
   ) => void
   getClipboardFiles: () => ClipboardFile[]
   setClipboardFiles: (files: Array<string | { path: string }>) => boolean
@@ -901,34 +924,49 @@ export class ScreenCapture {
 
   /**
    * 启动区域截图
-   * @param {Function} callback - 截图完成时的回调函数
-   * - 参数: { success: boolean, width?: number, height?: number, x?: number, y?: number }
+   * @param options 截图选项；直接传函数时按旧签名 start(callback) 处理
+   *   - autoConfirm: 选区确定后直接出图，跳过编辑态（工具栏/标注），默认 true
+   * @param callback 截图完成时的回调函数
+   * - 参数: { success: boolean, width?: number, height?: number, x?: number, y?: number, base64?: string }
    * - success: 是否成功截图
    * - width: 截图宽度（成功时）
    * - height: 截图高度（成功时）
    * - x: 截图左上角 x 坐标（成功时，macOS 暂不支持）
    * - y: 截图左上角 y 坐标（成功时，macOS 暂不支持）
+   * - base64: 截图 PNG 的 base64（成功时）
+   *
+   * @example
+   * // 默认：框选/点选完成即出图，不再二次编辑
+   * ScreenCapture.start((result) => { ... });
+   *
+   * // 进入编辑态：选区确定后停留在工具栏，可标注/调整
+   * ScreenCapture.start({ autoConfirm: false }, (result) => { ... });
    */
   static start(
-    callback: (result: {
-      success: boolean
-      width?: number
-      height?: number
-      x?: number
-      y?: number
-    }) => void
+    options: ScreenCaptureOptions | ((result: ScreenCaptureResult) => void),
+    callback?: (result: ScreenCaptureResult) => void
   ): void {
     if (platform === 'darwin') {
       // macOS 暂不支持
       throw new Error('ScreenCapture is not yet supported on macOS')
     }
 
-    if (typeof callback !== 'function') {
+    // 兼容旧签名 start(callback)
+    let opts: ScreenCaptureOptions | undefined
+    let cb: ((result: ScreenCaptureResult) => void) | undefined
+    if (typeof options === 'function') {
+      cb = options
+    } else {
+      opts = options
+      cb = callback
+    }
+
+    if (typeof cb !== 'function') {
       throw new TypeError('Callback must be a function')
     }
 
-    ;(addon as NativeAddon).startRegionCaptureWithPrimedFrame((result) => {
-      callback(result)
+    ;(addon as NativeAddon).startRegionCaptureWithPrimedFrame(opts ?? {}, (result) => {
+      cb!(result)
     })
   }
 }
