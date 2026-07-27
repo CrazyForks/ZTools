@@ -20,6 +20,17 @@ export function isMainPushPluginEnabled(pluginName: string, enabledPluginNames: 
   return enabledPluginNames.includes(pluginName)
 }
 
+/** 判断插件是否声明了可用的 mainPush 功能，决定是否展示「搜索栏推送」开关。 */
+export function pluginSupportsMainPush(plugin: unknown): boolean {
+  const features = (plugin as { features?: unknown } | null | undefined)?.features
+  if (!Array.isArray(features)) return false
+  return features.some(
+    (feature) =>
+      !!(feature as { mainPush?: unknown } | null)?.mainPush &&
+      Array.isArray((feature as { cmds?: unknown }).cmds)
+  )
+}
+
 export function removePluginNameFromSettingList(data: string[], pluginName: string): string[] {
   return data.filter((name) => name !== pluginName)
 }

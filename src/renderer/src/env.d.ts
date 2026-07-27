@@ -119,6 +119,10 @@ declare global {
       showContextMenu: (menuItems: any[]) => Promise<void>
       getAllPlugins: () => Promise<any[]>
       getDisabledPlugins: () => Promise<string[]>
+      setPluginMainPushEnabled: (
+        pluginName: string,
+        enabled: boolean
+      ) => Promise<{ success: boolean; error?: string }>
       killPluginAndReturn: (pluginPath: string) => Promise<{ success: boolean; error?: string }>
       pluginUpdates: {
         check: (pluginName: string, pluginPath: string) => Promise<PluginUpdateCheckResult>

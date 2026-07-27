@@ -170,6 +170,10 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import PluginUpgradeIcon from '@renderer/assets/icons/plugin-upgrade.svg?component'
 import { normalizeConfigList } from '@shared/pluginSettings'
+import {
+  resolveMainPushMenuState,
+  toggleMainPushSetting
+} from '../../composables/useMainPushSetting'
 import AdaptiveIcon from '../common/AdaptiveIcon.vue'
 import { CommonKeyboardModifier, readModifiers } from '@renderer/utils/convertKeyboardEvent'
 
@@ -640,9 +644,20 @@ async function showPluginSettings(): Promise<void> {
     const currentName = pluginId.value
     const isAutoKill = !!currentName && outKillPluginList.includes(currentName)
     const isAutoDetach = !!currentName && autoDetachPluginList.includes(currentName)
+    const mainPushState = await resolveMainPushMenuState(currentName)
 
     // 显示菜单
     const menuItems = [
+      ...(mainPushState.supported
+        ? [
+            {
+              id: 'toggle-main-push',
+              label: '搜索栏推送',
+              type: 'checkbox',
+              checked: mainPushState.enabled
+            }
+          ]
+        : []),
       {
         id: 'toggle-auto-kill',
         label: '退出到后台立即结束运行',
@@ -690,6 +705,8 @@ async function showPluginSettings(): Promise<void> {
         : [...autoDetachPluginList, currentName]
       await window.ztools.dbPut('auto-detach-plugin', updatedList)
       console.log('已更新"自动分离为独立窗口"配置:', updatedList)
+    } else if (result?.id === 'toggle-main-push') {
+      await toggleMainPushSetting(currentName)
     }
   } catch (error) {
     console.error('显示插件设置菜单失败:', error)

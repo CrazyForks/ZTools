@@ -264,6 +264,10 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import PluginUpgradeIcon from '@renderer/assets/icons/plugin-upgrade.svg?component'
 import { normalizeConfigList } from '@shared/pluginSettings'
+import {
+  resolveMainPushMenuState,
+  toggleMainPushSetting
+} from '../../composables/useMainPushSetting'
 import { DEFAULT_AVATAR, useWindowStore } from '../../stores/windowStore'
 import AdaptiveIcon from '../common/AdaptiveIcon.vue'
 import UpdateIcon from './UpdateIcon.vue'
@@ -1110,6 +1114,13 @@ onMounted(() => {
         console.error('切换跟随启动配置失败:', error)
         alert(`操作失败: ${error.message || '未知错误'}`)
       }
+    } else if (command === 'toggle-main-push') {
+      try {
+        await toggleMainPushSetting(getCurrentPluginName())
+      } catch (error: any) {
+        console.error('切换搜索栏推送配置失败:', error)
+        alert(`操作失败: ${error.message || '未知错误'}`)
+      }
     }
   })
 })
@@ -1165,6 +1176,7 @@ async function handleSettingsClick(): Promise<void> {
     const isAutoKill = !!currentPluginName && outKillPlugins.includes(currentPluginName)
     const isAutoDetach = !!currentPluginName && autoDetachPlugins.includes(currentPluginName)
     const isAutoStart = !!currentPluginName && autoStartPlugins.includes(currentPluginName)
+    const mainPushState = await resolveMainPushMenuState(currentPluginName)
 
     // 根据平台显示不同的快捷键
     const platform = window.ztools.getPlatform()
@@ -1177,6 +1189,16 @@ async function handleSettingsClick(): Promise<void> {
       {
         label: '插件设置',
         submenu: [
+          ...(mainPushState.supported
+            ? [
+                {
+                  id: 'toggle-main-push',
+                  label: '搜索栏推送',
+                  type: 'checkbox',
+                  checked: mainPushState.enabled
+                }
+              ]
+            : []),
           {
             id: 'toggle-auto-kill',
             label: '退出到后台立即结束运行',

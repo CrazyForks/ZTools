@@ -59,6 +59,10 @@ import {
   type MainPushGroup,
   type MainPushItem
 } from '../../composables/useMainPushResults'
+import {
+  resolveMainPushMenuState,
+  toggleMainPushSetting
+} from '../../composables/useMainPushSetting'
 import { useNavigation } from '../../composables/useNavigation'
 import { useSearchResults } from '../../composables/useSearchResults'
 import { useCommandDataStore } from '../../stores/commandDataStore'
@@ -575,10 +579,21 @@ async function handleAppContextMenu(app: any, source: ContextMenuSource = 'searc
     const pluginPayload = getPluginPayload(app)
     const isAutoKill = !!pluginPayload && outKillPlugins.includes(pluginPayload.pluginName)
     const isAutoDetach = !!pluginPayload && autoDetachPlugins.includes(pluginPayload.pluginName)
+    const mainPushState = await resolveMainPushMenuState(pluginPayload?.pluginName)
 
     menuItems.push({
       label: '插件设置',
       submenu: [
+        ...(mainPushState.supported
+          ? [
+              {
+                id: `toggle-main-push:${JSON.stringify(pluginPayload)}`,
+                label: '搜索栏推送',
+                type: 'checkbox',
+                checked: mainPushState.enabled
+              }
+            ]
+          : []),
         {
           id: `toggle-auto-kill:${JSON.stringify(pluginPayload)}`,
           label: '退出到后台立即结束运行',
@@ -978,6 +993,13 @@ async function handleContextMenuCommand(command: string): Promise<void> {
       console.log('已更新 autoDetachPlugin 配置:', autoDetachPlugins)
     } catch (error: any) {
       console.error('切换自动分离配置失败:', error)
+    }
+  } else if (command.startsWith('toggle-main-push:')) {
+    const pluginPayload = parsePluginPayload(command.replace('toggle-main-push:', ''))
+    try {
+      await toggleMainPushSetting(pluginPayload?.pluginName)
+    } catch (error: any) {
+      console.error('切换搜索栏推送配置失败:', error)
     }
   } else if (command.startsWith('pin-super-panel:')) {
     const appJson = command.replace('pin-super-panel:', '')

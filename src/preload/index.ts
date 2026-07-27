@@ -78,6 +78,8 @@ const api = {
   showContextMenu: (menuItems: any[]) => ipcRenderer.invoke('show-context-menu', menuItems),
   getAllPlugins: () => ipcRenderer.invoke('get-all-plugins'),
   getDisabledPlugins: () => ipcRenderer.invoke('get-disabled-plugins'),
+  setPluginMainPushEnabled: (pluginName: string, enabled: boolean) =>
+    ipcRenderer.invoke('set-plugin-main-push-enabled', pluginName, enabled),
   killPluginAndReturn: (pluginPath: string) =>
     ipcRenderer.invoke('kill-plugin-and-return', pluginPath),
   pluginUpdates: {
@@ -567,6 +569,10 @@ declare global {
       showContextMenu: (menuItems: any[]) => Promise<void>
       getAllPlugins: () => Promise<any[]>
       getDisabledPlugins: () => Promise<string[]>
+      setPluginMainPushEnabled: (
+        pluginName: string,
+        enabled: boolean
+      ) => Promise<{ success: boolean; error?: string }>
       killPluginAndReturn: (pluginPath: string) => Promise<{ success: boolean; error?: string }>
       pluginUpdates: {
         check: (pluginName: string, pluginPath: string) => Promise<PluginUpdateCheckResult>
