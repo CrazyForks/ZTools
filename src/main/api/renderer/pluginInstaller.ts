@@ -386,6 +386,14 @@ export class PluginInstallerAPI {
       return ''
     }
 
+    // 优先使用插件对象自带的下载地址，兼容第三方市场（如 badbear）直接提供的完整 URL；
+    // 仅当插件未携带下载地址时，才回退到官方 server 端解析。
+    const providedDownloadUrl =
+      typeof plugin?.downloadUrl === 'string' ? plugin.downloadUrl.trim() : ''
+    if (providedDownloadUrl) {
+      return providedDownloadUrl
+    }
+
     const marketApiBase = getPluginMarketApiBase()
     const response = await requestPluginMarket(
       `${marketApiBase}/plugins/download?name=${encodeURIComponent(pluginName)}`,
