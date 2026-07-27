@@ -3,6 +3,7 @@ import path from 'path'
 import mainPreload from '../../../resources/preload.js?asset'
 import proxyManager from '../managers/proxyManager'
 import { GLOBAL_SCROLLBAR_CSS } from './globalStyles'
+import { resolvePluginWindowUrl } from '../utils/pluginUrl'
 
 /**
  * 插件可用的 BrowserWindow / WebContents 方法白名单
@@ -211,11 +212,11 @@ class PluginWindowManager {
     pluginName: string,
     sessionPartition: string,
     url: string,
-    options: BrowserWindowConstructorOptions,
+    options: BrowserWindowConstructorOptions = {},
     senderWebContents: Electron.WebContents
   ): BrowserWindow {
     // 处理 preload 路径（如果是相对路径）
-    let preloadPath = options.webPreferences?.preload
+    let preloadPath = options?.webPreferences?.preload
     if (preloadPath && !path.isAbsolute(preloadPath)) {
       preloadPath = path.join(pluginPath, preloadPath)
     }
@@ -240,7 +241,7 @@ class PluginWindowManager {
     const win = new BrowserWindow({
       ...options,
       webPreferences: {
-        ...options.webPreferences,
+        ...options?.webPreferences,
         preload: preloadPath,
         session: sess,
         contextIsolation: false,
@@ -259,15 +260,9 @@ class PluginWindowManager {
       sessionPartition
     })
 
-    // 加载 URL
-    if (url.startsWith('http')) {
-      win.loadURL(url)
-    } else if (url.startsWith('file:///')) {
-      win.loadURL(url)
-    } else {
-      const loadUrl = `file:///${path.join(pluginPath, url)}`
-      win.loadURL(loadUrl)
-    }
+    // 加载 URL（支持 `index.html?id=1#/route` 形式的 query 与 hash）
+    const loadUrl = resolvePluginWindowUrl(pluginPath, url)
+    win.loadURL(loadUrl)
 
     // 子窗口 dom-ready 时触发父窗口 callback（与 utools 一致）
     win.webContents.on('dom-ready', () => {
@@ -306,7 +301,7 @@ class PluginWindowManager {
     })
 
     console.info(
-      `[pluginWindow:create] plugin=${pluginName} partition=${sessionPartition} winId=${win.id} url=${url}`
+      `[pluginWindow:create] plugin=${pluginName} partition=${sessionPartition} winId=${win.id} url=${url} → ${loadUrl}`
     )
 
     return win
