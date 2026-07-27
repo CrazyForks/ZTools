@@ -234,7 +234,7 @@ class ClipboardManager {
     try {
       let item: Partial<ClipboardItem> | null = null
 
-      // 优先级：文件 > 图片 > 文本
+      // 优先级：文件 > 图片（仅纯图片）> 文本
       // 跨平台文件检测
       let hasFiles = false
       try {
@@ -246,7 +246,7 @@ class ClipboardManager {
 
       if (hasFiles) {
         item = await this.handleFile()
-      } else if (!clipboard.readImage().isEmpty()) {
+      } else if (this.shouldTreatAsImage()) {
         item = await this.handleImage()
       } else {
         item = await this.handleText()
@@ -267,6 +267,24 @@ class ClipboardManager {
       }
     } catch (error) {
       console.error('[Clipboard] 处理剪贴板失败:', error)
+    }
+  }
+
+  /**
+   * 判断剪贴板是否应按图片处理。
+   *
+   * Word / WPS 等 Office 应用复制文本时，会额外写入选区的 TIFF/PDF 渲染，
+   * 使 readImage() 非空。这类情况下板上同时存在有效纯文本，应按文本处理。
+   */
+  private shouldTreatAsImage(): boolean {
+    try {
+      if (clipboard.readImage().isEmpty()) {
+        return false
+      }
+      return clipboard.readText().trim().length === 0
+    } catch (error) {
+      console.error('[Clipboard] 检测图片剪贴板失败:', error)
+      return false
     }
   }
 
