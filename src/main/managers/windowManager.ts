@@ -16,6 +16,7 @@ import windowsIcon from '../../../resources/icons/windows-icon.png?asset'
 
 import api from '../api'
 import databaseAPI from '../api/shared/database'
+import dndManager from '../core/dndManager.js'
 import doubleTapManager from '../core/doubleTapManager.js'
 import globalInputManager from '../core/globalInputManager.js'
 import { WindowManager as NativeWindowManager } from '../core/native/index.js'
@@ -625,6 +626,15 @@ class WindowManager {
         }
       },
       {
+        label: '游戏模式',
+        type: 'checkbox',
+        checked: dndManager.manualEnabled,
+        click: () => {
+          dndManager.toggleManual()
+          this.refreshTrayMenu()
+        }
+      },
+      {
         type: 'separator'
       },
       {
@@ -652,6 +662,14 @@ class WindowManager {
         }
       }
     ])
+  }
+
+  public refreshTrayMenu(): void {
+    if (!this.tray) return
+    this.createTrayMenu()
+    if (platform.isLinux) {
+      this.tray.setContextMenu(this.trayMenu)
+    }
   }
 
   /**
@@ -693,7 +711,7 @@ class WindowManager {
     if (this.isDoubleTapShortcut(keyToRegister)) {
       const modifier = keyToRegister.split('+')[0]
       doubleTapManager.register(modifier, () => {
-        this.toggleWindowFromDoubleTap()
+        if (!dndManager.shouldIgnoreHotkeys()) this.toggleWindowFromDoubleTap()
       })
       this.currentShortcut = keyToRegister
       this.isDoubleTapMode = true
@@ -703,7 +721,7 @@ class WindowManager {
 
     // 普通快捷键模式：通过 globalShortcut 注册
     const ret = globalShortcut.register(keyToRegister, () => {
-      this.toggleWindow()
+      if (!dndManager.shouldIgnoreHotkeys()) this.toggleWindow()
     })
 
     if (!ret) {
@@ -712,11 +730,11 @@ class WindowManager {
       if (oldIsDoubleTapMode) {
         const oldModifier = oldShortcut.split('+')[0]
         doubleTapManager.register(oldModifier, () => {
-          this.toggleWindowFromDoubleTap()
+          if (!dndManager.shouldIgnoreHotkeys()) this.toggleWindowFromDoubleTap()
         })
       } else {
         globalShortcut.register(oldShortcut, () => {
-          this.toggleWindow()
+          if (!dndManager.shouldIgnoreHotkeys()) this.toggleWindow()
         })
       }
       return false

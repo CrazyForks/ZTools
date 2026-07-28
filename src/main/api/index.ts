@@ -39,6 +39,7 @@ import pluginShellAPI from './plugin/shell'
 import pluginToastAPI from './plugin/toast'
 import pluginToolsAPI from './plugin/tools'
 import pluginUIAPI from './plugin/ui'
+import pluginUserAPI from './plugin/user'
 import pluginWindowAPI from './plugin/window'
 import { setupImageAnalysisAPI } from './shared/imageAnalysis'
 import {
@@ -130,6 +131,7 @@ class APIManager {
     pluginAiAPI.init(mainWindow, pluginManager)
     pluginLifecycleAPI.init(mainWindow, pluginManager)
     pluginUIAPI.init(mainWindow, pluginManager)
+    pluginUserAPI.init()
     // 注入主题信息变更钩子：当主题色/材质变更时通知所有插件视图
     windowManager.setOnThemeInfoChanged(() => {
       pluginUIAPI.broadcastThemeInfoToAllPlugins()

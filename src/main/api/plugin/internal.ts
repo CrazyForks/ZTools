@@ -1,6 +1,7 @@
 import { app, dialog, IpcMainInvokeEvent, ipcMain } from 'electron'
 import type { PluginManager } from '../../managers/pluginManager'
 import windowManager from '../../managers/windowManager.js'
+import dndManager from '../../core/dndManager.js'
 import logCollector from '../../core/logCollector.js'
 import clipboardManager from '../../managers/clipboardManager.js'
 import detachedWindowManager from '../../core/detachedWindowManager.js'
@@ -1221,6 +1222,23 @@ export class InternalPluginAPI {
         return { success: true }
       }
     )
+
+    ipcMain.handle('internal:set-game-mode', async (event, v: boolean) => {
+      if (!requireInternalPlugin(this.pluginManager, event)) {
+        throw new PermissionDeniedError('internal:set-game-mode')
+      }
+      dndManager.manualEnabled = v
+      windowManager.refreshTrayMenu()
+      return { success: true }
+    })
+
+    ipcMain.handle('internal:set-ignore-hotkeys-on-fullscreen', async (event, v: boolean) => {
+      if (!requireInternalPlugin(this.pluginManager, event)) {
+        throw new PermissionDeniedError('internal:set-ignore-hotkeys-on-fullscreen')
+      }
+      dndManager.setIgnoreOnFullscreen(v)
+      return { success: true }
+    })
 
     ipcMain.handle('internal:get-current-window-info', async (event) => {
       if (!requireInternalPlugin(this.pluginManager, event)) {

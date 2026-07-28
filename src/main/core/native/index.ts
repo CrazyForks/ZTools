@@ -180,6 +180,7 @@ interface WindowInfo {
   y?: number // 窗口 y 坐标
   width?: number // 窗口宽度
   height?: number // 窗口高度
+  isFullscreen?: boolean // macOS 焦点窗口是否处于系统全屏状态
   appPath?: string // 应用路径
   className?: string // Windows 窗口类名（用于区分 CabinetWClass/Progman/WorkerW 等）
   hwnd?: number // Windows 窗口句柄（用于 COM 查询 Explorer 路径）
@@ -193,8 +194,17 @@ interface WindowInfo {
 
 interface ActiveWindowResult {
   app: string
+  appName?: string
   bundleId?: string
   pid?: number
+  processId?: number
+  title?: string
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+  appPath?: string
+  isFullscreen?: boolean
   error?: string
 }
 
@@ -405,10 +415,10 @@ export class WindowManager {
   /**
    * 获取当前激活的窗口信息
    * @returns 窗口信息对象
-   * - macOS: { app, bundleId, pid }
-   * - Windows: { app, pid }
+   * - macOS: { app, bundleId, pid, x, y, width, height, isFullscreen }
+   * - Windows: { app, pid, x, y, width, height }
    */
-  static getActiveWindow(): { app: string; bundleId?: string; pid?: number } | null {
+  static getActiveWindow(): ActiveWindowResult | null {
     if (platform === 'linux') {
       return null
     }

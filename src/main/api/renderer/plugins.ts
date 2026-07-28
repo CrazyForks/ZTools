@@ -131,6 +131,9 @@ export class PluginsAPI {
     ipcMain.handle('set-plugin-disabled', (_event, pluginPath: string, disabled: boolean) =>
       this.setPluginDisabled(pluginPath, disabled)
     )
+    ipcMain.handle('set-plugin-main-push-enabled', (_event, pluginName: string, enabled: boolean) =>
+      this.setPluginMainPushEnabled(pluginName, enabled)
+    )
     ipcMain.handle('import-plugin', () => this.installer.importPlugin())
     ipcMain.handle('import-dev-plugin', (_event, pluginJsonPath?: string) =>
       this.devProjects.importDevPlugin(pluginJsonPath)

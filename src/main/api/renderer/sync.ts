@@ -9,6 +9,7 @@ import lmdbInstance, { storageManager } from '../../core/lmdb/lmdbInstance'
 import pluginDeviceAPI from '../plugin/device'
 import { defaultAccountImportService } from '../../core/storage/defaultAccountImportService'
 import activityHeartbeatService from '../../core/activity/heartbeatService'
+import { cacheUserProfile } from '../../core/account/userProfileStore'
 import { coordinateTokenRefresh } from '../../core/sync/tokenRefreshCoordinator'
 import type { PluginManager } from '../../managers/pluginManager'
 
@@ -441,6 +442,8 @@ export class SyncAPI {
         if (!response.ok) {
           return { success: false, error: data.error || '获取账号资料失败' }
         }
+        // 主进程先更新同步快照，确保插件随后调用 getUser 时可立即读取最新资料。
+        cacheUserProfile(data, config.username || '')
         return { success: true, profile: data }
       } catch (error: any) {
         return { success: false, error: error.message }
@@ -476,6 +479,8 @@ export class SyncAPI {
         if (!response.ok) {
           return { success: false, error: data.error || '头像上传失败' }
         }
+        // 上传成功后同步头像快照，避免插件继续读取旧头像。
+        cacheUserProfile(data, config.username || '')
         return { success: true, profile: data }
       } catch (error: any) {
         return { success: false, error: error.message }
@@ -712,6 +717,8 @@ export class SyncAPI {
           if (!response.ok) {
             return { success: false, error: data.error || '更新昵称失败' }
           }
+          // 服务端返回最终资料后同步本地快照，避免昵称展示不一致。
+          cacheUserProfile(data)
           return { success: true, profile: data }
         } catch (error: any) {
           return { success: false, error: error.message }

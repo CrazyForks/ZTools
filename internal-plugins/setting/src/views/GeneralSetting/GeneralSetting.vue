@@ -207,6 +207,9 @@ function goToTranslationProviders(): void {
 // 唤醒黑名单
 const wakeupBlacklist = ref<Array<{ app: string; bundleId?: string; label?: string }>>([])
 
+// 全屏模式下忽略热键
+const ignoreHotkeysOnFullscreen = ref(false)
+
 // 超级面板翻译设置（开关已迁移到「提供商 → 翻译」，这里仅保留字段以兼容历史持久化数据）
 const superPanelTranslateEnabled = ref(false)
 // 超级面板触发模式（计算属性）
@@ -905,6 +908,16 @@ async function handleRemoveWakeupBlacklistApp(index: number): Promise<void> {
   }
 }
 
+// 全屏模式下忽略热键
+async function handleIgnoreHotkeysOnFullscreenChange(): Promise<void> {
+  try {
+    await saveSettings()
+    await window.ztools.internal.setIgnoreHotkeysOnFullscreen(ignoreHotkeysOnFullscreen.value)
+  } catch (err) {
+    console.error('更新全屏忽略热键设置失败:', err)
+  }
+}
+
 // 处理主题色变化
 async function handlePrimaryColorChange(color: string): Promise<void> {
   try {
@@ -1222,6 +1235,7 @@ async function loadSettings(): Promise<void> {
       superPanelLongPressMs.value = data.superPanelLongPressMs ?? 500
       superPanelBlockedApps.value = data.superPanelBlockedApps ?? []
       wakeupBlacklist.value = data.wakeupBlacklist ?? []
+      ignoreHotkeysOnFullscreen.value = data.ignoreHotkeysOnFullscreen ?? false
       superPanelTranslateEnabled.value = data.superPanelTranslateEnabled ?? false
       // 窗口材质由主进程启动时保证一定有值，无需兜底
       windowMaterial.value = data.windowMaterial
@@ -1306,6 +1320,7 @@ async function saveSettings(): Promise<void> {
       superPanelLongPressMs: superPanelLongPressMs.value,
       superPanelBlockedApps: superPanelBlockedApps.value.map((item) => ({ ...item })),
       wakeupBlacklist: wakeupBlacklist.value.map((item) => ({ ...item })),
+      ignoreHotkeysOnFullscreen: ignoreHotkeysOnFullscreen.value,
       superPanelTranslateEnabled: superPanelTranslateEnabled.value,
       theme: theme.value,
       primaryColor: primaryColor.value,
@@ -1451,6 +1466,24 @@ onUnmounted(() => {
               </button>
             </span>
           </div>
+        </div>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-label">
+          <span>全屏模式下忽略热键</span>
+          <span class="setting-desc">当全屏应用激活时禁用快捷键（建议游戏时打开）</span>
+        </div>
+        <div class="setting-control">
+          <label class="toggle">
+            <input
+              v-model="ignoreHotkeysOnFullscreen"
+              type="checkbox"
+              aria-label="全屏模式下忽略热键"
+              @change="handleIgnoreHotkeysOnFullscreenChange"
+            />
+            <span class="toggle-slider"></span>
+          </label>
         </div>
       </div>
     </div>

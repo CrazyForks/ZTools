@@ -10,6 +10,7 @@ import {
 } from './native/index.js'
 import { launchApp } from './commandLauncher/index.js'
 import databaseAPI from '../api/shared/database.js'
+import dndManager from './dndManager.js'
 import pluginsAPI from '../api/renderer/plugins.js'
 import windowManager from '../managers/windowManager.js'
 import clipboardManager, { type LastCopiedContent } from '../managers/clipboardManager.js'
@@ -279,6 +280,11 @@ class SuperPanelManager {
           console.log('[SuperPanel] 当前窗口被屏蔽，跳过触发:', blockedWindow.app)
           return { shouldBlock: false }
         }
+      }
+
+      if (dndManager.shouldIgnoreHotkeys()) {
+        console.log('[SuperPanel] 游戏模式/全屏屏蔽，跳过触发')
+        return { shouldBlock: false }
       }
 
       // 异步部分：模拟复制、读取剪贴板、显示面板

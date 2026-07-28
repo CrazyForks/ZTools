@@ -303,6 +303,8 @@ window.ztools = {
   getWindowType: () => electron.ipcRenderer.sendSync('get-window-type'),
   // 是否深色主题
   isDarkColors: () => electron.ipcRenderer.sendSync('is-dark-colors'),
+  // 获取当前登录用户的公开资料
+  getUser: () => ipcSendSync('getUser'),
   // 获取当前主题信息（isDark, primaryColor, customColor, windowMaterial）
   getThemeInfo: () => ipcSendSync('getThemeInfo'),
   // 监听主题变更
@@ -1249,6 +1251,11 @@ window.ztools = {
     // ==================== 唤醒黑名单 API ====================
     updateWakeupBlacklist: async (blacklist) =>
       await electron.ipcRenderer.invoke('internal:update-wakeup-blacklist', blacklist),
+
+    setGameMode: async (v) => await electron.ipcRenderer.invoke('internal:set-game-mode', v),
+
+    setIgnoreHotkeysOnFullscreen: async (v) =>
+      await electron.ipcRenderer.invoke('internal:set-ignore-hotkeys-on-fullscreen', v),
 
     // 超级面板翻译
     updateSuperPanelTranslate: async (enabled) =>

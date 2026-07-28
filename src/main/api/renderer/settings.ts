@@ -9,6 +9,7 @@ import {
 } from '../../core/native/index.js'
 import { getCurrentShortcut, updateShortcut } from '../../appMain.js'
 
+import dndManager from '../../core/dndManager.js'
 import doubleTapManager from '../../core/doubleTapManager.js'
 import proxyManager from '../../managers/proxyManager.js'
 import windowManager from '../../managers/windowManager.js'
@@ -234,6 +235,7 @@ export class SettingsAPI {
       // 应用托盘图标显示设置（默认显示，在 if(data) 块外确保首次启动也能创建托盘）
       windowManager.setTrayIconVisible(data?.showTrayIcon ?? true)
       console.log('[Settings] 启动时应用托盘图标显示设置:', data?.showTrayIcon ?? true)
+      dndManager.loadConfig()
 
       if (data) {
         // 应用透明度设置
@@ -572,6 +574,7 @@ export class SettingsAPI {
     preparation: GlobalShortcutPreparation,
     skipPrime: boolean = false
   ): Promise<void> {
+    if (dndManager.shouldIgnoreHotkeys()) return
     if (!this.shouldTriggerGlobalShortcut(preparation.target)) {
       console.log(`[Settings] 上一次全局快捷键流程未完成，忽略本次触发: ${shortcut}`)
       return
