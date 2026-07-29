@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { pathToFileURL } from 'url'
 import LmdbDatabase from '../../src/main/core/lmdb'
 import { getZToolsDataLayout } from '../../src/main/core/appData/appDataPaths'
 import { LegacyImportService } from '../../src/main/core/storage/legacyImportService'
@@ -142,6 +143,7 @@ describe('ZTools 3.0 legacy import', () => {
       path.join(legacyUserDataPath, 'plugins', 'demo', 'plugin.json'),
       JSON.stringify({ name: 'demo' })
     )
+    fs.writeFileSync(path.join(legacyUserDataPath, 'plugins', 'demo', 'logo.png'), 'logo')
     fs.mkdirSync(path.join(legacyUserDataPath, 'avatar'), { recursive: true })
     fs.writeFileSync(path.join(legacyUserDataPath, 'avatar', 'user.png'), 'avatar')
 
@@ -150,10 +152,28 @@ describe('ZTools 3.0 legacy import', () => {
       mapSize: 128 * 1024 * 1024,
       maxDbs: 6
     })
-    legacyDb.put({ _id: 'ZTOOLS/settings-general', data: { theme: 'light' } })
+    legacyDb.put({
+      _id: 'ZTOOLS/settings-general',
+      data: {
+        theme: 'light',
+        avatar: pathToFileURL(path.join(legacyUserDataPath, 'avatar', 'user.png')).href
+      }
+    })
     legacyDb.put({
       _id: 'ZTOOLS/plugins',
-      data: [{ name: 'keep-installed', path: path.join(legacyUserDataPath, 'plugins', 'demo') }]
+      data: [
+        {
+          name: 'keep-installed',
+          path: path.join(legacyUserDataPath, 'plugins', 'demo'),
+          logo: pathToFileURL(path.join(legacyUserDataPath, 'plugins', 'demo', 'logo.png')).href,
+          features: [
+            {
+              code: 'demo',
+              icon: pathToFileURL(path.join(legacyUserDataPath, 'plugins', 'demo', 'logo.png')).href
+            }
+          ]
+        }
+      ]
     })
     legacyDb.put({ _id: 'PLUGIN/demo/settings', data: { value: 'legacy' } })
     legacyDb.postAttachment('PLUGIN/demo/settings', Buffer.from('legacy-attachment'), 'text/plain')
@@ -199,9 +219,19 @@ describe('ZTools 3.0 legacy import', () => {
     expect(result.skippedAttachments).toBe(0)
     expect(result.copiedDirs).toEqual(['plugins', 'avatar'])
     expect(manager.getDeviceDb().get('ZTOOLS/settings-general')?.data.theme).toBe('light')
+    expect(manager.getDeviceDb().get('ZTOOLS/settings-general')?.data.avatar).toBe(
+      pathToFileURL(path.join(homeDir, '.ztools', 'avatar', 'user.png')).href
+    )
     expect(manager.getDeviceDb().get('ZTOOLS/plugins')?.data[0]).toMatchObject({
       name: 'keep-installed',
-      path: path.join(homeDir, '.ztools', 'plugins', 'demo')
+      path: path.join(homeDir, '.ztools', 'plugins', 'demo'),
+      logo: pathToFileURL(path.join(homeDir, '.ztools', 'plugins', 'demo', 'logo.png')).href,
+      features: [
+        {
+          code: 'demo',
+          icon: pathToFileURL(path.join(homeDir, '.ztools', 'plugins', 'demo', 'logo.png')).href
+        }
+      ]
     })
     expect(fs.existsSync(path.join(homeDir, '.ztools', 'plugins', 'demo', 'plugin.json'))).toBe(
       true

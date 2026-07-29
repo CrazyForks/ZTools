@@ -2,8 +2,26 @@ import databaseAPI from '../api/shared/database.js'
 import { isDevelopmentPluginName, toDevPluginName } from '../../shared/pluginRuntimeNamespace.js'
 import { isBundledInternalPlugin } from './internalPlugins.js'
 import { HOST_STORAGE_KEYS, LEGACY_CAMEL_CASE_STORAGE_KEYS } from '../../shared/storageKeys.js'
+import { getZToolsDataLayout, type AppDataPathOptions } from './appData/appDataPaths.js'
+import { rewriteLegacyStoragePaths } from './storage/legacyPathRewriter.js'
 
 const LEGACY_WEB_SEARCH_FEATURE_PREFIX = 'web-search-'
+const LEGACY_PATH_STORAGE_KEYS = [
+  HOST_STORAGE_KEYS.settingsGeneral,
+  HOST_STORAGE_KEYS.plugins,
+  HOST_STORAGE_KEYS.disabledPlugins,
+  HOST_STORAGE_KEYS.pinnedCommands,
+  HOST_STORAGE_KEYS.superPanelPinned,
+  HOST_STORAGE_KEYS.localShortcuts,
+  HOST_STORAGE_KEYS.globalShortcuts,
+  HOST_STORAGE_KEYS.appShortcuts,
+  HOST_STORAGE_KEYS.commandAliases,
+  HOST_STORAGE_KEYS.pluginCenterPinned,
+  HOST_STORAGE_KEYS.commandHistory,
+  HOST_STORAGE_KEYS.lastMatchState,
+  HOST_STORAGE_KEYS.devPluginRegistry,
+  'cached-commands'
+] as const
 
 /**
  * 将单个旧版 macOS .icns 图标 URL 迁移为直接使用 .app 路径的 ztools-icon URL
@@ -54,10 +72,11 @@ function migrateLegacyMacAppIcons(items: any[]): boolean {
 }
 
 /**
- * 启动时统一迁移历史遗留数据
- * 当前仅处理旧版 macOS .icns 图标 URL 到 .app 路径图标 URL 的转换
+ * 启动时统一迁移历史文件 URL、存储键和失效的功能引用。
+ * @returns 无返回值
  */
 export function runStartupDataMigrations(): void {
+  migrateLegacyFileUrls()
   migrateHostStorageKeys()
   migrateDevPluginNames()
   cleanupLegacyWebSearchReferences()
@@ -83,6 +102,32 @@ export function runStartupDataMigrations(): void {
       }
     } catch (error) {
       console.error(`[StartupMigration] 迁移失败: ${key}`, error)
+    }
+  }
+}
+
+/**
+ * 修复已经完成 2.x 迁移但仍指向旧 userData 的文件 URL。
+ * @param pathOptions 测试或特殊运行环境使用的数据目录覆盖项
+ * @returns 无返回值
+ */
+export function migrateLegacyFileUrls(pathOptions: AppDataPathOptions = {}): void {
+  const layout = getZToolsDataLayout(pathOptions)
+
+  // 只扫描可能持有文件或图标路径的主程序文档，避免无关数据产生写放大。
+  for (const key of LEGACY_PATH_STORAGE_KEYS) {
+    try {
+      const data = databaseAPI.dbGet(key)
+      if (data === null || data === undefined) continue
+
+      const result = rewriteLegacyStoragePaths(data, layout)
+      if (!result.changed) continue
+
+      databaseAPI.dbPut(key, result.value)
+      console.log(`[StartupMigration] 已修复旧版文件 URL: ${key}`)
+    } catch (error) {
+      // 单个文档失败不能阻止其余迁移和主程序启动。
+      console.error(`[StartupMigration] 修复旧版文件 URL 失败: ${key}`, error)
     }
   }
 }

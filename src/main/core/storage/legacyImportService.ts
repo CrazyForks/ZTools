@@ -15,6 +15,7 @@ import {
   LEGACY_CAMEL_CASE_STORAGE_KEYS,
   toHostDocId
 } from '../../../shared/storageKeys'
+import { rewriteLegacyStoragePaths } from './legacyPathRewriter'
 
 export type LegacyImportMode = 'full' | 'compact'
 
@@ -189,6 +190,14 @@ export class LegacyImportService {
   }
 }
 
+/**
+ * 清理旧文档的同步元数据、重写数据目录路径，并处理特殊配置迁移。
+ * @param doc 旧版 LMDB 中的原始文档
+ * @param layout 旧版与 3.x 数据目录布局
+ * @param targetDocId 导入后的目标文档 ID
+ * @param docsById 旧版文档索引，用于依赖其他文档的转换
+ * @returns 可写入 3.x 数据库的文档
+ */
 function sanitizeLegacyDocForImport(
   doc: any,
   layout: ReturnType<typeof getZToolsDataLayout>,
@@ -206,7 +215,11 @@ function sanitizeLegacyDocForImport(
     ...cleanDoc
   } = doc || {}
 
-  const pathRewrittenDoc = rewriteLegacyPaths({ ...cleanDoc, _id: targetDocId }, layout)
+  // 同时迁移裸绝对路径和 file URL，避免图标继续指向已移除的 2.x 目录。
+  const pathRewrittenDoc = rewriteLegacyStoragePaths(
+    { ...cleanDoc, _id: targetDocId },
+    layout
+  ).value
 
   if (
     doc?._id === toHostDocId(LEGACY_CAMEL_CASE_STORAGE_KEYS.disabledMainPushPlugin) &&
@@ -283,28 +296,6 @@ function copyDirectoryContents(sourceDir: string, targetDir: string): boolean {
     }
   }
   return copied
-}
-
-function rewriteLegacyPaths<T>(value: T, layout: ReturnType<typeof getZToolsDataLayout>): T {
-  if (typeof value === 'string') {
-    return rewriteLegacyPath(value, layout) as T
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => rewriteLegacyPaths(item, layout)) as T
-  }
-  if (value && typeof value === 'object') {
-    const next: Record<string, unknown> = {}
-    for (const [key, child] of Object.entries(value)) {
-      next[key] = rewriteLegacyPaths(child, layout)
-    }
-    return next as T
-  }
-  return value
-}
-
-function rewriteLegacyPath(value: string, layout: ReturnType<typeof getZToolsDataLayout>): string {
-  if (!value.startsWith(layout.legacyUserDataPath)) return value
-  return path.join(layout.root, path.relative(layout.legacyUserDataPath, value))
 }
 
 function getImportTargetDocId(docId: string, options: LegacyImportOptions): string | null {

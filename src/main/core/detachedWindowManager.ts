@@ -760,6 +760,25 @@ class DetachedWindowManager {
       }
     }
   }
+
+  /**
+   * 在所有分离窗口的插件内容页面中执行主题更新脚本。
+   * @param script 要在插件页面主世界执行的 JavaScript。
+   * @returns 所有插件页面完成执行后的 Promise。
+   */
+  public async executeJavaScriptOnPluginViews(script: string): Promise<void> {
+    const tasks: Promise<unknown>[] = []
+    // 只操作插件内容视图，不修改分离窗口的宿主标题栏页面。
+    for (const info of this.detachedWindowMap.values()) {
+      if (!info.view.webContents.isDestroyed()) {
+        // 捕获窗口销毁竞态导致的同步异常，避免主题广播被单个窗口中断。
+        tasks.push(
+          Promise.resolve().then(() => info.view.webContents.executeJavaScript(script, true))
+        )
+      }
+    }
+    await Promise.allSettled(tasks)
+  }
 }
 
 export default new DetachedWindowManager()

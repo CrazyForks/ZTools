@@ -5,6 +5,7 @@ const clipboardState = {
   text: '',
   pngBuffer: Buffer.from('fake-png')
 }
+const existingFilePaths = new Set<string>()
 
 vi.mock('electron', () => ({
   clipboard: {
@@ -78,6 +79,7 @@ vi.mock('../../src/main/managers/pluginManager', () => ({
 }))
 
 vi.mock('fs', () => ({
+  existsSync: vi.fn((filePath: string) => existingFilePaths.has(filePath)),
   promises: {
     mkdir: vi.fn(async () => undefined),
     writeFile: vi.fn(async () => undefined),
@@ -87,6 +89,7 @@ vi.mock('fs', () => ({
   }
 }))
 
+import { writeClipboardFiles } from '../../src/main/utils/clipboardFiles'
 import clipboardManager from '../../src/main/managers/clipboardManager'
 
 async function triggerClipboardChange(): Promise<string | undefined> {
@@ -131,5 +134,56 @@ describe('clipboard type detection', () => {
     clipboardState.text = 'plain text'
 
     expect(await triggerClipboardChange()).toBe('text')
+  })
+})
+
+describe('clipboard content writing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    existingFilePaths.clear()
+    vi.mocked(writeClipboardFiles).mockReturnValue(true)
+  })
+
+  it('writes a single existing file path', () => {
+    existingFilePaths.add('/tmp/file-a.txt')
+
+    expect(clipboardManager.writeContent({ type: 'file', content: '/tmp/file-a.txt' })).toBe(true)
+    expect(writeClipboardFiles).toHaveBeenCalledWith(['/tmp/file-a.txt'])
+  })
+
+  it('writes multiple files while filtering invalid paths', () => {
+    existingFilePaths.add('/tmp/file-a.txt')
+    existingFilePaths.add('/tmp/folder-b')
+
+    expect(
+      clipboardManager.writeContent({
+        type: 'file',
+        content: ['/tmp/file-a.txt', '', '/tmp/missing.txt', '/tmp/folder-b']
+      })
+    ).toBe(true)
+    expect(writeClipboardFiles).toHaveBeenCalledWith(['/tmp/file-a.txt', '/tmp/folder-b'])
+  })
+
+  it('rejects a file list without any valid paths', () => {
+    expect(clipboardManager.writeContent({ type: 'file', content: ['', '/tmp/missing.txt'] })).toBe(
+      false
+    )
+    expect(writeClipboardFiles).not.toHaveBeenCalled()
+  })
+
+  it('returns false when the platform file writer is unsupported', () => {
+    existingFilePaths.add('/tmp/file-a.txt')
+    vi.mocked(writeClipboardFiles).mockReturnValue(false)
+
+    expect(clipboardManager.writeContent({ type: 'file', content: '/tmp/file-a.txt' })).toBe(false)
+  })
+
+  it('rejects array content for text and image types at runtime', () => {
+    expect(clipboardManager.writeContent({ type: 'text', content: ['invalid'] } as never)).toBe(
+      false
+    )
+    expect(clipboardManager.writeContent({ type: 'image', content: ['invalid'] } as never)).toBe(
+      false
+    )
   })
 })

@@ -12,6 +12,7 @@ import detachedWindowManager, {
   type DetachedPluginUpgradeSnapshot
 } from '../core/detachedWindowManager'
 import { GLOBAL_SCROLLBAR_CSS } from '../core/globalStyles'
+import { buildPluginThemeCSS, getCurrentPluginThemeState } from '../core/pluginTheme'
 import {
   CUSTOM_INTERNAL_API_PLUGIN_NAMES_KEY,
   canPluginUseInternalApi,
@@ -691,7 +692,9 @@ export class PluginManager {
           this.assemblyCoordinator.markSessionStatus(assembly, 'domReady')
         }
 
-        view.webContents.insertCSS(GLOBAL_SCROLLBAR_CSS)
+        // 页面完成 DOM 初始化后注入宿主统一样式和当前主题色。
+        void view.webContents.insertCSS(GLOBAL_SCROLLBAR_CSS)
+        void view.webContents.insertCSS(buildPluginThemeCSS(getCurrentPluginThemeState()))
         await this.processPluginMode(pluginPath, featureCode, view, assembly)
         this.sendPluginLoadedEvent(effectiveName, pluginPath)
         // 修复 Windows 首次进入插件时的白屏：新建视图同样需要触发重绘
@@ -1116,7 +1119,9 @@ export class PluginManager {
 
       view.webContents.once('dom-ready', () => {
         this.assemblyCoordinator.markDomReady(view.webContents.id)
-        view.webContents.insertCSS(GLOBAL_SCROLLBAR_CSS)
+        // 后台页面也需要先具备主题色，避免首次切到前台时出现颜色闪烁。
+        void view.webContents.insertCSS(GLOBAL_SCROLLBAR_CSS)
+        void view.webContents.insertCSS(buildPluginThemeCSS(getCurrentPluginThemeState()))
         console.log('[Plugin] 后台预加载插件完成:', {
           pluginName: effectiveName,
           pluginPath,
@@ -1927,7 +1932,9 @@ export class PluginManager {
       pluginView.webContents.loadURL(pluginUrl)
 
       pluginView.webContents.on('did-finish-load', () => {
-        pluginView.webContents.insertCSS(GLOBAL_SCROLLBAR_CSS)
+        // 独立插件窗口加载完成后注入与主视图一致的主题色变量。
+        void pluginView.webContents.insertCSS(GLOBAL_SCROLLBAR_CSS)
+        void pluginView.webContents.insertCSS(buildPluginThemeCSS(getCurrentPluginThemeState()))
         // 升级重开时优先使用快照，避免其他启动动作覆盖插件原进入参数。
         const enterPayload = this.assemblyCoordinator.buildEnterPayload(
           enterParam ?? (api.getLaunchParam() as EnterPayload)

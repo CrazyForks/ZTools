@@ -5,6 +5,7 @@ import detachedWindowManager from '../../core/detachedWindowManager'
 import databaseAPI from '../shared/database'
 import windowManager from '../../managers/windowManager'
 import pluginWindowManager from '../../core/pluginWindowManager'
+import { buildPluginThemeScript, type PluginThemeState } from '../../core/pluginTheme'
 import { registerPluginApiServices } from './pluginApiDispatcher'
 
 /**
@@ -371,6 +372,30 @@ export class PluginUIAPI {
   public broadcastThemeInfoToAllPlugins(): void {
     const themeInfo = this.buildThemeInfo()
     this.broadcastToAllPluginViews('update-theme-info', themeInfo)
+    // 主题广播同时直接更新页面变量，确保未订阅 onThemeChange 的插件也能适配主题色。
+    void this.applyThemeToAllPluginViews(themeInfo)
+  }
+
+  /**
+   * 直接更新所有已加载插件页面的主题色 CSS 变量。
+   * @param themeInfo 宿主当前完整主题信息。
+   * @returns 所有目标页面完成执行后的 Promise。
+   */
+  private async applyThemeToAllPluginViews(themeInfo: PluginThemeState): Promise<void> {
+    const script = buildPluginThemeScript(themeInfo)
+    const tasks: Promise<unknown>[] = []
+    // 更新主窗口中缓存的插件视图。
+    const views = this.pluginManager?.getAllPluginViews() || []
+    for (const { view } of views) {
+      if (!view.webContents.isDestroyed() && !view.webContents.isLoadingMainFrame()) {
+        // 捕获窗口销毁竞态导致的同步异常，避免主题广播被单个窗口中断。
+        tasks.push(Promise.resolve().then(() => view.webContents.executeJavaScript(script, true)))
+      }
+    }
+    await Promise.allSettled(tasks)
+    // 更新分离窗口和插件自建窗口中的内容页面。
+    await detachedWindowManager.executeJavaScriptOnPluginViews(script)
+    await pluginWindowManager.executeJavaScriptOnAllWindows(script)
   }
 
   /**

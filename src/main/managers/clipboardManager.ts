@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import { clipboard, nativeImage } from 'electron'
-import { promises as fs } from 'fs'
+import { existsSync, promises as fs } from 'fs'
 import path from 'path'
 
 import os from 'os'
@@ -26,6 +26,11 @@ export type LastCopiedContent = {
   timestamp: number
   sequence: number
 }
+
+export type ClipboardWriteContentData =
+  | { type: 'text'; content: string }
+  | { type: 'image'; content: string }
+  | { type: 'file'; content: string | string[] }
 
 // 文件项
 interface FileItem {
@@ -817,22 +822,36 @@ class ClipboardManager {
     }
   }
 
-  // 直接写入内容到剪贴板
-  public writeContent(data: { type: 'text' | 'image'; content: string }): boolean {
+  /**
+   * 将文本、图片或文件路径直接写入系统剪贴板。
+   *
+   * @param data 待写入的剪贴板内容，文件类型支持单路径或路径数组
+   * @returns 内容成功写入系统剪贴板时返回 true，否则返回 false
+   */
+  public writeContent(data: ClipboardWriteContentData): boolean {
     try {
       if (data.type === 'text') {
+        // 文本内容必须保持字符串形式，拒绝来自无类型调用方的数组输入。
+        if (typeof data.content !== 'string') {
+          return false
+        }
         clipboard.writeText(data.content)
         return true
       } else if (data.type === 'image') {
-        // 1. 尝试作为 DataURL 处理
+        // 图片内容必须为可解析的字符串，避免数组被隐式转换。
+        if (typeof data.content !== 'string') {
+          return false
+        }
+
+        // 优先按 Data URL 解析图片内容。
         let image = nativeImage.createFromDataURL(data.content)
 
-        // 2. 如果为空，尝试作为文件路径处理
+        // Data URL 无效时尝试将内容作为本地图片路径。
         if (image.isEmpty()) {
           image = nativeImage.createFromPath(data.content)
         }
 
-        // 3. 如果仍为空，尝试作为 Base64 处理
+        // 路径无效时最后尝试将裸 Base64 内容解码为图片。
         if (image.isEmpty()) {
           try {
             image = nativeImage.createFromBuffer(Buffer.from(data.content, 'base64'))
@@ -848,6 +867,21 @@ class ClipboardManager {
 
         console.error('[Clipboard] 无效的图片内容')
         return false
+      } else if (data.type === 'file') {
+        // 统一转换为数组，并过滤空路径、不存在路径及无类型调用方传入的非法成员。
+        const contents = Array.isArray(data.content) ? data.content : [data.content]
+        const filePaths = contents.filter(
+          (filePath): filePath is string =>
+            typeof filePath === 'string' && filePath.trim().length > 0 && existsSync(filePath)
+        )
+
+        // 不允许写入空文件列表，避免清空或污染当前系统剪贴板。
+        if (filePaths.length === 0) {
+          console.error('[Clipboard] 没有可写入剪贴板的有效文件路径')
+          return false
+        }
+
+        return writeClipboardFiles(filePaths)
       }
       return false
     } catch (error) {

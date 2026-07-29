@@ -502,7 +502,7 @@ window.ztools = {
     getStatus: async () => await electron.ipcRenderer.invoke('clipboard:get-status'),
     write: async (id, shouldPaste = true) =>
       await electron.ipcRenderer.invoke('clipboard:write', id, shouldPaste),
-    // 写入内容到剪贴板 ({ type: 'text'|'image', content: string }, shouldPaste = true)
+    // 写入内容到剪贴板（file 类型的 content 支持单路径或路径数组）
     writeContent: async (data, shouldPaste = true) =>
       await electron.ipcRenderer.invoke('clipboard:write-content', data, shouldPaste),
     updateConfig: async (config) =>
