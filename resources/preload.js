@@ -1049,6 +1049,12 @@ window.ztools = {
       await electron.ipcRenderer.invoke('internal:set-launch-at-login', enabled),
     getLaunchAtLogin: async () => await electron.ipcRenderer.invoke('internal:get-launch-at-login'),
     selectImageFile: async () => await electron.ipcRenderer.invoke('internal:select-image-file'),
+    /**
+     * 选择并托管主搜索窗口壁纸，超宽图片由主进程负责压缩。
+     * @returns {Promise<object>} 托管壁纸文件信息或错误结果
+     */
+    selectSearchWallpaper: async () =>
+      await electron.ipcRenderer.invoke('internal:select-search-wallpaper'),
     setProxyConfig: async (config) =>
       await electron.ipcRenderer.invoke('internal:set-proxy-config', config),
     getAppVersion: async () => await electron.ipcRenderer.invoke('get-app-version'),
@@ -1121,6 +1127,13 @@ window.ztools = {
         lightOpacity,
         darkOpacity
       ),
+    /**
+     * 通知主搜索窗口更新本地壁纸配置。
+     * @param {object|null} wallpaper 壁纸配置；null 表示清除壁纸
+     * @returns {Promise<{success: boolean}>} 主窗口接收结果
+     */
+    updateSearchWallpaper: async (wallpaper) =>
+      await electron.ipcRenderer.invoke('internal:update-search-wallpaper', wallpaper),
 
     // 监听窗口材质更新
     onUpdateWindowMaterial: (callback) => {
@@ -1269,14 +1282,50 @@ window.ztools = {
       await electron.ipcRenderer.invoke('super-panel:unpin-command', path, featureCode),
     getSuperPanelPinned: async () => await electron.ipcRenderer.invoke('super-panel:get-pinned'),
 
-    // ==================== AI 模型管理 API ====================
-    aiModels: {
-      getAll: async () => await electron.ipcRenderer.invoke('internal:ai-models-get-all'),
-      add: async (model) => await electron.ipcRenderer.invoke('internal:ai-models-add', model),
-      update: async (model) =>
-        await electron.ipcRenderer.invoke('internal:ai-models-update', model),
-      delete: async (modelId) =>
-        await electron.ipcRenderer.invoke('internal:ai-models-delete', modelId)
+    // ==================== AI 供应商管理 API ====================
+    aiProviders: {
+      /**
+       * 获取完整 AI 供应商配置。
+       * @returns 供应商配置查询结果
+       */
+      getAll: async () => await electron.ipcRenderer.invoke('internal:ai-providers-get-all'),
+      /**
+       * 添加 AI 供应商。
+       * @param {object} provider 供应商连接信息和已选模型
+       * @returns 供应商新增结果
+       */
+      add: async (provider) =>
+        await electron.ipcRenderer.invoke('internal:ai-providers-add', provider),
+      /**
+       * 更新 AI 供应商。
+       * @param {object} provider 带内部 ID 的供应商配置
+       * @returns 供应商更新结果
+       */
+      update: async (provider) =>
+        await electron.ipcRenderer.invoke('internal:ai-providers-update', provider),
+      /**
+       * 删除 AI 供应商。
+       * @param {string} providerId 供应商内部 ID
+       * @returns 供应商删除结果
+       */
+      delete: async (providerId) =>
+        await electron.ipcRenderer.invoke('internal:ai-providers-delete', providerId),
+      /**
+       * 开启或关闭 AI 供应商。
+       * @param {string} providerId 供应商内部 ID
+       * @param {boolean} enabled 是否允许插件发现和调用该供应商
+       * @returns 供应商状态更新结果
+       */
+      setEnabled: async (providerId, enabled) =>
+        await electron.ipcRenderer.invoke('internal:ai-providers-set-enabled', providerId, enabled),
+      /**
+       * 拉取 OpenAI 兼容供应商的模型列表。
+       * @param {string} apiUrl 供应商接口基础地址
+       * @param {string} apiKey 供应商 API 密钥
+       * @returns 远端模型查询结果
+       */
+      fetchModels: async (apiUrl, apiKey) =>
+        await electron.ipcRenderer.invoke('internal:ai-providers-fetch-models', apiUrl, apiKey)
     },
 
     // ==================== Provider（翻译 / OCR 等）管理 API ====================

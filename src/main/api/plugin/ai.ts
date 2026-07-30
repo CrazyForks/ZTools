@@ -1,15 +1,15 @@
 import { ipcMain } from 'electron'
 import type { PluginManager } from '../../managers/pluginManager'
 import OpenAI from 'openai'
-import lmdbInstance from '../../core/lmdb/lmdbInstance'
-import type { AiModel } from '../renderer/aiModels'
 import detachedWindowManager from '../../core/detachedWindowManager'
+import aiProviderService, { type ResolvedAiModel } from '../../core/aiProviderService.js'
+import type { AiModelChoice, AiProvider } from '../../../shared/aiProviderShared.js'
 
 /**
  * AI 选项
  */
 export interface AiOption {
-  model?: string // AI 模型，为空默认使用第一个配置的模型
+  model?: string // allAiModels 返回的 id 或 value，为空使用首个已开启供应商的首个模型
   messages: Message[] // 消息列表
   tools?: Tool[] // 工具列表
 }
@@ -188,43 +188,33 @@ class PluginAiAPI {
     }
   }
 
-  private async getAllAiModels(): Promise<
-    Array<{ id: string; label: string; description: string; icon: string; cost: number }>
-  > {
-    try {
-      const doc = await lmdbInstance.promises.get('ZTOOLS/ai-models')
-      if (doc?.data && Array.isArray(doc.data)) {
-        return (doc.data as AiModel[]).map((m) => ({
-          id: m.id,
-          label: m.label,
-          description: m.description || '',
-          icon: m.icon || '',
-          cost: m.cost || 0
-        }))
-      }
-      return []
-    } catch {
-      return []
-    }
+  /**
+   * 获取供插件构建选择器的全部已启用 AI 模型。
+   * @returns 带供应商展示信息的模型条目
+   */
+  private async getAllAiModels(): Promise<AiModelChoice[]> {
+    return aiProviderService.getModelChoices()
   }
 
-  private async getModelConfig(modelId?: string): Promise<AiModel | null> {
-    try {
-      const doc = await lmdbInstance.promises.get('ZTOOLS/ai-models')
-      if (doc?.data && Array.isArray(doc.data)) {
-        const models: AiModel[] = doc.data
-        return modelId ? models.find((m) => m.id === modelId) || null : models[0] || null
-      }
-      return null
-    } catch {
-      return null
-    }
+  /**
+   * 将插件选择值解析为供应商连接和真实远端模型。
+   * @param modelRef 插件传入的公开 ID、稳定 value 或历史兼容 ID
+   * @returns 已解析的模型调用配置；没有配置时返回 null
+   * @throws 旧式远端模型 ID 同时匹配多个供应商时抛出歧义错误
+   */
+  private async getModelConfig(modelRef?: string): Promise<ResolvedAiModel | null> {
+    return aiProviderService.resolveModel(modelRef)
   }
 
-  private createClient(modelConfig: AiModel): OpenAI {
+  /**
+   * 使用供应商凭据创建 OpenAI 兼容客户端。
+   * @param provider 已解析的供应商连接配置
+   * @returns OpenAI SDK 客户端
+   */
+  private createClient(provider: AiProvider): OpenAI {
     return new OpenAI({
-      apiKey: modelConfig.apiKey,
-      baseURL: modelConfig.apiUrl
+      apiKey: provider.apiKey,
+      baseURL: provider.apiUrl
     })
   }
   /**
@@ -306,14 +296,19 @@ class PluginAiAPI {
   }
   /**
    * 非流式调用 AI，自动处理工具调用循环
+   * @param option 插件提交的模型、消息和工具选项
+   * @param requestId 当前 AI 请求的唯一 ID
+   * @param webContents 发起调用的插件页面
+   * @returns AI 调用结果
+   * @throws 模型选择值存在供应商歧义时抛出错误
    */
   private async callAI(
     option: AiOption,
     requestId: string,
     webContents: Electron.WebContents
   ): Promise<{ success: boolean; data?: Message; error?: string }> {
-    const modelConfig = await this.getModelConfig(option.model)
-    if (!modelConfig) {
+    const resolvedModel = await this.getModelConfig(option.model)
+    if (!resolvedModel) {
       return { success: false, error: '未找到 AI 模型配置，请先在设置中添加模型' }
     }
 
@@ -322,7 +317,7 @@ class PluginAiAPI {
 
     try {
       this.notifyAiStatus('sending', webContents)
-      const client = this.createClient(modelConfig)
+      const client = this.createClient(resolvedModel.provider)
       const openaiTools = option.tools?.length ? this.convertTools(option.tools) : undefined
       const messages = [...option.messages]
 
@@ -331,7 +326,7 @@ class PluginAiAPI {
 
         const response = await client.chat.completions.create(
           {
-            model: modelConfig.id,
+            model: resolvedModel.model.modelId,
             messages: this.convertMessages(messages),
             ...(openaiTools?.length ? { tools: openaiTools } : {})
           },
@@ -403,6 +398,12 @@ class PluginAiAPI {
   /**
    * 流式调用 AI，自动处理工具调用循环
    * 流式过程中实时推送 content 和 reasoning_content 片段
+   * @param option 插件提交的模型、消息和工具选项
+   * @param requestId 当前 AI 请求的唯一 ID
+   * @param webContents 发起调用的插件页面
+   * @param onChunk 接收流式消息片段的回调
+   * @returns 调用完成后结束的 Promise
+   * @throws 模型无效、调用中止或远端请求失败时抛出错误
    */
   private async callAIStream(
     option: AiOption,
@@ -410,8 +411,8 @@ class PluginAiAPI {
     webContents: Electron.WebContents,
     onChunk: (chunk: Message) => void
   ): Promise<void> {
-    const modelConfig = await this.getModelConfig(option.model)
-    if (!modelConfig) {
+    const resolvedModel = await this.getModelConfig(option.model)
+    if (!resolvedModel) {
       throw new Error('未找到 AI 模型配置，请先在设置中添加模型')
     }
 
@@ -420,7 +421,7 @@ class PluginAiAPI {
 
     try {
       this.notifyAiStatus('sending', webContents)
-      const client = this.createClient(modelConfig)
+      const client = this.createClient(resolvedModel.provider)
       const openaiTools = option.tools?.length ? this.convertTools(option.tools) : undefined
       const messages = [...option.messages]
 
@@ -429,7 +430,7 @@ class PluginAiAPI {
 
         const stream = await client.chat.completions.create(
           {
-            model: modelConfig.id,
+            model: resolvedModel.model.modelId,
             messages: this.convertMessages(messages),
             stream: true,
             ...(openaiTools?.length ? { tools: openaiTools } : {})

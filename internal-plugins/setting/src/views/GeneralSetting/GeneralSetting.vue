@@ -15,6 +15,12 @@ import {
 } from '@/constants'
 import { Dropdown, HotkeyInput, Slider, useToast } from '@/components'
 import { applyCustomColor, applyPrimaryColor } from '@/utils'
+import {
+  DEFAULT_SEARCH_WALLPAPER_BLUR,
+  DEFAULT_SEARCH_WALLPAPER_OPACITY,
+  normalizeSearchWallpaperConfig,
+  type SearchWallpaperConfig
+} from '@shared/searchWallpaper'
 
 const { success, error, info, confirm } = useToast()
 
@@ -284,6 +290,15 @@ const windowMaterial = ref<'mica' | 'acrylic' | 'none'>('none')
 // 亚克力材质背景色透明度
 const acrylicLightOpacity = ref(78) // 明亮模式默认 78%
 const acrylicDarkOpacity = ref(50) // 暗黑模式默认 50%
+
+// 主搜索窗口壁纸保存宿主管理的本地副本，用户原始文件保持不变
+const searchWallpaper = ref<SearchWallpaperConfig | null>(null)
+const searchWallpaperPreviewFailed = ref(false)
+const searchWallpaperFileName = computed(() => {
+  const wallpaperPath = searchWallpaper.value?.path
+  if (!wallpaperPath) return ''
+  return wallpaperPath.split(/[\\/]/).pop() || wallpaperPath
+})
 
 // 颜色选择器引用
 const colorPickerInput = ref<HTMLInputElement | null>(null)
@@ -1053,6 +1068,78 @@ async function handleAcrylicDarkOpacityChange(): Promise<void> {
   }
 }
 
+/**
+ * 保存壁纸配置并通知主搜索窗口立即更新。
+ * @returns 保存和通知完成后结束的 Promise
+ */
+async function persistSearchWallpaper(): Promise<void> {
+  // 先持久化设备本地配置，确保下次启动能够恢复。
+  await saveSettings()
+
+  // 跨 IPC 前转换为普通对象，避免 Vue Proxy 无法被 Electron 结构化克隆。
+  const wallpaperPayload = normalizeSearchWallpaperConfig(searchWallpaper.value)
+  await window.ztools.internal.updateSearchWallpaper(wallpaperPayload)
+}
+
+/**
+ * 打开本地图片选择器，并将选中的图片应用为主搜索窗口壁纸。
+ * @returns 选择、保存和通知完成后结束的 Promise
+ */
+async function handleSelectSearchWallpaper(): Promise<void> {
+  try {
+    const result = await window.ztools.internal.selectSearchWallpaper()
+    if (!result.success || !result.path || !result.url) {
+      if (result.error) error(`选择壁纸失败: ${result.error}`)
+      return
+    }
+
+    // 更换图片时保留用户已经调整的显示参数。
+    searchWallpaper.value = {
+      path: result.path,
+      url: result.url,
+      opacity: searchWallpaper.value?.opacity ?? DEFAULT_SEARCH_WALLPAPER_OPACITY,
+      blur: searchWallpaper.value?.blur ?? DEFAULT_SEARCH_WALLPAPER_BLUR
+    }
+    searchWallpaperPreviewFailed.value = false
+    await persistSearchWallpaper()
+    success('主搜索窗口壁纸已更新')
+  } catch (err) {
+    console.error('选择主搜索窗口壁纸失败:', err)
+    error('选择壁纸失败')
+  }
+}
+
+/**
+ * 保存透明度或模糊参数，并同步到主搜索窗口。
+ * @returns 保存和通知完成后结束的 Promise
+ */
+async function handleSearchWallpaperEffectChange(): Promise<void> {
+  try {
+    searchWallpaper.value = normalizeSearchWallpaperConfig(searchWallpaper.value)
+    await persistSearchWallpaper()
+  } catch (err) {
+    console.error('更新主搜索窗口壁纸效果失败:', err)
+    error('更新壁纸效果失败')
+  }
+}
+
+/**
+ * 清除壁纸配置，但不删除用户选择的原始图片。
+ * @returns 清除、保存和通知完成后结束的 Promise
+ */
+async function handleClearSearchWallpaper(): Promise<void> {
+  try {
+    // 只移除配置引用，避免对用户本地文件执行破坏性操作。
+    searchWallpaper.value = null
+    searchWallpaperPreviewFailed.value = false
+    await persistSearchWallpaper()
+    success('主搜索窗口壁纸已清除')
+  } catch (err) {
+    console.error('清除主搜索窗口壁纸失败:', err)
+    error('清除壁纸失败')
+  }
+}
+
 // 处理开机启动变化
 async function handleLaunchAtLoginChange(): Promise<void> {
   try {
@@ -1193,7 +1280,10 @@ async function getPlatformInfo(): Promise<void> {
 
 // ==================== 数据持久化 ====================
 
-// 加载设置
+/**
+ * 加载通用设置并应用当前页面负责的运行时状态。
+ * @returns 设置加载和应用完成后结束的 Promise
+ */
 async function loadSettings(): Promise<void> {
   try {
     // 加载数据库中的设置
@@ -1241,6 +1331,7 @@ async function loadSettings(): Promise<void> {
       windowMaterial.value = data.windowMaterial
       acrylicLightOpacity.value = data.acrylicLightOpacity ?? 78
       acrylicDarkOpacity.value = data.acrylicDarkOpacity ?? 50
+      searchWallpaper.value = normalizeSearchWallpaperConfig(data.searchWallpaper)
       // 开发者工具位置
       devToolsMode.value = data.devToolsMode ?? 'detach'
       // GPU 加速控制
@@ -1283,7 +1374,10 @@ async function loadSettings(): Promise<void> {
   }
 }
 
-// 保存设置
+/**
+ * 合并保存通用设置，保留其他页面管理的字段。
+ * @returns 设置保存完成后结束的 Promise
+ */
 async function saveSettings(): Promise<void> {
   try {
     // 只有自定义头像才保存到数据库，默认头像不保存
@@ -1329,6 +1423,8 @@ async function saveSettings(): Promise<void> {
       windowMaterial: windowMaterial.value,
       acrylicLightOpacity: acrylicLightOpacity.value,
       acrylicDarkOpacity: acrylicDarkOpacity.value,
+      // 数据库 IPC 同样只接收可结构化克隆的普通壁纸对象。
+      searchWallpaper: normalizeSearchWallpaperConfig(searchWallpaper.value),
       devToolsMode: devToolsMode.value,
       disableGpuAcceleration: disableGpuAcceleration.value,
       customInternalApiPluginNames: [...customInternalApiPluginNames.value],
@@ -1598,6 +1694,74 @@ onUnmounted(() => {
             :step="1"
             :formatter="(value) => `${value}%`"
             @change="handleAcrylicDarkOpacityChange"
+          />
+        </div>
+      </div>
+
+      <div class="setting-item wallpaper-setting-item">
+        <div class="setting-label">
+          <span>主搜索窗口壁纸</span>
+          <span class="setting-desc">图片副本保存在 .ztools/avatar，超宽图片会自动压缩</span>
+        </div>
+        <div class="setting-control wallpaper-control">
+          <div v-if="searchWallpaper" class="wallpaper-preview-wrapper">
+            <img
+              v-if="!searchWallpaperPreviewFailed"
+              :src="searchWallpaper.url"
+              class="wallpaper-preview"
+              alt="主搜索窗口壁纸预览"
+              draggable="false"
+              @load="searchWallpaperPreviewFailed = false"
+              @error="searchWallpaperPreviewFailed = true"
+            />
+            <div v-else class="wallpaper-preview wallpaper-preview-error">图片不可用</div>
+          </div>
+          <div class="wallpaper-actions">
+            <span v-if="searchWallpaper" class="wallpaper-file-name" :title="searchWallpaper.path">
+              {{ searchWallpaperFileName }}
+            </span>
+            <div class="wallpaper-buttons">
+              <button class="btn" @click="handleSelectSearchWallpaper">
+                {{ searchWallpaper ? '更换图片' : '选择图片' }}
+              </button>
+              <button v-if="searchWallpaper" class="btn" @click="handleClearSearchWallpaper">
+                清除
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="searchWallpaper" class="setting-item">
+        <div class="setting-label">
+          <span>壁纸透明度</span>
+          <span class="setting-desc">只调整壁纸图片层，不影响窗口和文字透明度</span>
+        </div>
+        <div class="setting-control opacity-control">
+          <Slider
+            v-model="searchWallpaper.opacity"
+            :min="0.05"
+            :max="1"
+            :step="0.05"
+            :formatter="(value) => `${Math.round(value * 100)}%`"
+            @change="handleSearchWallpaperEffectChange"
+          />
+        </div>
+      </div>
+
+      <div v-if="searchWallpaper" class="setting-item">
+        <div class="setting-label">
+          <span>壁纸模糊</span>
+          <span class="setting-desc">模糊仅作用于壁纸图片，范围 0 至 20 像素</span>
+        </div>
+        <div class="setting-control opacity-control">
+          <Slider
+            v-model="searchWallpaper.blur"
+            :min="0"
+            :max="20"
+            :step="1"
+            :formatter="(value) => `${value}px`"
+            @change="handleSearchWallpaperEffectChange"
           />
         </div>
       </div>
@@ -2501,6 +2665,66 @@ onUnmounted(() => {
 .opacity-control {
   min-width: 250px;
   gap: 12px;
+}
+
+.wallpaper-setting-item {
+  align-items: flex-start;
+}
+
+.wallpaper-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 360px;
+}
+
+.wallpaper-preview-wrapper {
+  width: 96px;
+  height: 60px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--control-bg);
+}
+
+.wallpaper-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.wallpaper-preview-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: center;
+}
+
+.wallpaper-actions {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.wallpaper-file-name {
+  max-width: 230px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallpaper-buttons {
+  display: flex;
+  gap: 8px;
 }
 
 /* 文本输入框 - 只设置布局，颜色由 global.css 控制 */

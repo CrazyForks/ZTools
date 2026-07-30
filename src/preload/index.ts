@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { SearchWallpaperConfig } from '@shared/searchWallpaper'
 
 export interface Command {
   name: string
@@ -237,6 +238,23 @@ const api = {
   },
   onUpdateAvatar: (callback: (avatar: string) => void) => {
     ipcRenderer.on('update-avatar', (_event, avatar) => callback(avatar))
+  },
+  /**
+   * 监听主搜索窗口壁纸的实时配置更新。
+   * @param callback 接收已规范化壁纸配置的回调函数
+   * @returns 用于移除监听器的清理函数
+   */
+  onUpdateSearchWallpaper: (
+    callback: (wallpaper: SearchWallpaperConfig | null) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      wallpaper: SearchWallpaperConfig | null
+    ): void => callback(wallpaper)
+    ipcRenderer.on('update-search-wallpaper', handler)
+    return (): void => {
+      ipcRenderer.removeListener('update-search-wallpaper', handler)
+    }
   },
   onAiStatusChanged: (callback: (status: 'idle' | 'sending' | 'receiving') => void) => {
     ipcRenderer.on('ai-status-changed', (_event, status) => callback(status))

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import defaultAvatar from '../assets/image/default.png'
+import { normalizeSearchWallpaperConfig, type SearchWallpaperConfig } from '@shared/searchWallpaper'
 
 interface WindowInfo {
   title?: string
@@ -108,6 +109,10 @@ export const useWindowStore = defineStore('window', () => {
   // 亚克力材质背景色透明度（0-100）
   const acrylicLightOpacity = ref(78) // 明亮模式默认 78%
   const acrylicDarkOpacity = ref(50) // 暗黑模式默认 50%
+
+  // 主搜索窗口壁纸只在本地图片仍可访问时进入运行时状态
+  const searchWallpaper = ref<SearchWallpaperConfig | null>(null)
+  let searchWallpaperValidationId = 0
 
   // 更新状态
   const availableUpdateInfo = ref<AvailableUpdateInfo>({ hasUpdate: false })
@@ -285,6 +290,60 @@ export const useWindowStore = defineStore('window', () => {
 
   function updateAcrylicDarkOpacity(value: number): void {
     acrylicDarkOpacity.value = value
+  }
+
+  /**
+   * 检查壁纸文件仍存在且能够被 Chromium 解码。
+   * @param wallpaper 已规范化的本地壁纸配置
+   * @returns 图片可用于渲染时返回 true
+   */
+  async function isSearchWallpaperAvailable(wallpaper: SearchWallpaperConfig): Promise<boolean> {
+    // 先通过主进程检查物理文件，避免对失效 file URL 发起无意义解码。
+    const [fileState] = await window.ztools.checkFilePaths([wallpaper.path])
+    if (!fileState?.exists || fileState.isDirectory) return false
+
+    // 再验证图片内容，损坏或不受支持的格式统一降级到主题背景。
+    return await new Promise<boolean>((resolve) => {
+      const image = new Image()
+      image.onload = (): void => resolve(true)
+      image.onerror = (): void => resolve(false)
+      image.src = wallpaper.url
+    })
+  }
+
+  /**
+   * 更新主搜索窗口壁纸，相同图片调整效果时跳过重复文件校验。
+   * @param value 从设置页或持久化存储接收的壁纸配置
+   * @returns 配置验证和应用完成后结束的 Promise
+   */
+  async function updateSearchWallpaper(value: unknown): Promise<void> {
+    const validationId = ++searchWallpaperValidationId
+    const normalizedWallpaper = normalizeSearchWallpaperConfig(value)
+    if (!normalizedWallpaper) {
+      searchWallpaper.value = null
+      return
+    }
+
+    // 滑块连续更新只改变显示参数，不重复读取同一张本地图片。
+    if (
+      searchWallpaper.value?.path === normalizedWallpaper.path &&
+      searchWallpaper.value.url === normalizedWallpaper.url
+    ) {
+      searchWallpaper.value = normalizedWallpaper
+      return
+    }
+
+    try {
+      const isAvailable = await isSearchWallpaperAvailable(normalizedWallpaper)
+
+      // 丢弃已经被后续选择替代的异步解码结果。
+      if (validationId !== searchWallpaperValidationId) return
+      searchWallpaper.value = isAvailable ? normalizedWallpaper : null
+    } catch (error) {
+      if (validationId !== searchWallpaperValidationId) return
+      console.warn('主搜索窗口壁纸不可用，已回退到主题背景:', error)
+      searchWallpaper.value = null
+    }
   }
 
   function applyCustomColor(color: string): void {
@@ -583,6 +642,7 @@ export const useWindowStore = defineStore('window', () => {
         if (data.acrylicDarkOpacity !== undefined) {
           acrylicDarkOpacity.value = data.acrylicDarkOpacity
         }
+        await updateSearchWallpaper(data.searchWallpaper)
         if (data.showRecentInSearch !== undefined) {
           showRecentInSearch.value = data.showRecentInSearch
         }
@@ -653,6 +713,7 @@ export const useWindowStore = defineStore('window', () => {
     customColor,
     acrylicLightOpacity,
     acrylicDarkOpacity,
+    searchWallpaper,
     availableUpdateInfo,
     autoCheckUpdateEnabled,
     shouldShowUpdateNotification,
@@ -692,6 +753,7 @@ export const useWindowStore = defineStore('window', () => {
     updateCustomColor,
     updateAcrylicLightOpacity,
     updateAcrylicDarkOpacity,
+    updateSearchWallpaper,
     getAutoPasteTimeLimit,
     getAutoClearTimeLimit,
     shouldClearSearch,

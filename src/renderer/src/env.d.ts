@@ -3,6 +3,7 @@
 // Ambient type declarations for renderer, so TS knows window.ztools
 
 import type { CommonKeyboardModifier } from '@renderer/utils/convertKeyboardEvent'
+import type { SearchWallpaperConfig } from '@shared/searchWallpaper'
 
 /**
  * 上次匹配状态接口
@@ -280,6 +281,9 @@ declare global {
       openSettings: () => void
       onUpdatePlaceholder: (callback: (placeholder: string) => void) => void
       onUpdateAvatar: (callback: (avatar: string) => void) => void
+      onUpdateSearchWallpaper: (
+        callback: (wallpaper: SearchWallpaperConfig | null) => void
+      ) => () => void
       onAiStatusChanged: (callback: (status: 'idle' | 'sending' | 'receiving') => void) => void
       onUpdateAutoPaste: (callback: (autoPaste: string) => void) => void
       onUpdateAutoClear: (callback: (autoClear: string) => void) => void

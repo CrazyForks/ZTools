@@ -1,5 +1,16 @@
 <template>
-  <div class="app-container" :class="{ 'app-container__plugin': currentView === ViewMode.Plugin }">
+  <div
+    class="app-container"
+    :class="{
+      'app-container__plugin': currentView === ViewMode.Plugin,
+      'has-search-wallpaper': hasSearchWallpaper
+    }"
+  >
+    <div
+      v-if="hasSearchWallpaper"
+      class="search-wallpaper-layer"
+      :style="searchWallpaperStyle"
+    ></div>
     <div class="search-window">
       <div :class="['search-box-wrapper', { 'with-divider': currentView === ViewMode.Plugin }]">
         <SearchBox
@@ -38,7 +49,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import SearchBox from './components/search/SearchBox.vue'
 import SearchResults from './components/search/SearchResults.vue'
 import { useCommandDataStore } from './stores/commandDataStore'
@@ -70,12 +81,30 @@ const searchResultsRef = ref<{
   resetCollapseState: () => void
 } | null>(null)
 let removeAutoCheckUpdateChangedListener: (() => void) | null = null
+let removeSearchWallpaperListener: (() => void) | null = null
 // 粘贴的图片数据
 const pastedImageData = ref<string | null>(null)
 // 粘贴的文件数据
 const pastedFilesData = ref<FileItem[] | null>(null)
 // 粘贴的文本数据
 const pastedTextData = ref<string | null>(null)
+
+const hasSearchWallpaper = computed(
+  () => currentView.value === ViewMode.Search && windowStore.searchWallpaper !== null
+)
+const searchWallpaperStyle = computed(() => {
+  const wallpaper = windowStore.searchWallpaper
+  if (!wallpaper) return {}
+
+  // 扩大图片层覆盖范围，避免 filter blur 在窗口边缘产生透明缝隙。
+  const blurOverflow = Math.ceil(wallpaper.blur * 2)
+  return {
+    backgroundImage: `url("${wallpaper.url}")`,
+    opacity: wallpaper.opacity,
+    filter: `blur(${wallpaper.blur}px)`,
+    inset: `-${blurOverflow}px`
+  }
+})
 
 // 将当前搜索输入和粘贴态同步到主进程，供应用快捷键启动时复用
 function syncLaunchContext(): void {
@@ -710,6 +739,11 @@ onMounted(async () => {
     windowStore.updateAvatar(avatar)
   })
 
+  // 壁纸设置只更新宿主搜索视图，不传递到当前插件页面。
+  removeSearchWallpaperListener = window.ztools.onUpdateSearchWallpaper((wallpaper) => {
+    void windowStore.updateSearchWallpaper(wallpaper)
+  })
+
   // 监听自动粘贴配置更新事件
   window.ztools.onUpdateAutoPaste((autoPaste: string) => {
     console.log('更新自动粘贴配置:', autoPaste)
@@ -1076,6 +1110,8 @@ onUnmounted(() => {
   // 释放支持主动清理的 IPC 监听器，避免重复挂载后收到多次通知。
   removeAutoCheckUpdateChangedListener?.()
   removeAutoCheckUpdateChangedListener = null
+  removeSearchWallpaperListener?.()
+  removeSearchWallpaperListener = null
   window.removeEventListener('keydown', handleKeydown)
 })
 </script>
@@ -1097,8 +1133,25 @@ onUnmounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
+  position: relative;
+  z-index: 1;
   /* overflow: hidden; 隐藏所有滚动条 */
   /* border-radius: 8px; Windows 11 圆角 */
+}
+
+.search-wallpaper-layer {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  transform: translateZ(0);
+  transition:
+    opacity 0.2s ease,
+    filter 0.2s ease;
+  will-change: opacity, filter;
 }
 
 .search-box-wrapper {

@@ -1,6 +1,14 @@
 /// <reference types="vite/client" />
 /// <reference types="@ztools-center/ztools-api-types" />
 
+import type { SearchWallpaperConfig } from '@shared/searchWallpaper'
+import type {
+  AiProviderInput,
+  AiProviderMutationResult,
+  AiProviderStore,
+  AiRemoteModel
+} from '@shared/aiProviderShared'
+
 declare module '*.vue' {
   import type { DefineComponent } from 'vue'
   const component: DefineComponent<Record<string, never>, Record<string, never>, unknown>
@@ -319,12 +327,24 @@ declare global {
         getWindowMaterial: () => Promise<'mica' | 'acrylic' | 'none'>
         onUpdateWindowMaterial: (callback: (material: 'mica' | 'acrylic' | 'none') => void) => void
         updateAcrylicOpacity: (lightOpacity: number, darkOpacity: number) => Promise<void>
+        updateSearchWallpaper: (
+          wallpaper: SearchWallpaperConfig | null
+        ) => Promise<{ success: boolean }>
         updatePlaceholder: (placeholder: string) => Promise<void>
         selectAvatar: () => Promise<{ success: boolean; path?: string; error?: string }>
         selectImageFile: () => Promise<{
           success: boolean
           path?: string
           url?: string
+          error?: string
+        }>
+        selectSearchWallpaper: () => Promise<{
+          success: boolean
+          path?: string
+          url?: string
+          width?: number
+          height?: number
+          compressed?: boolean
           error?: string
         }>
         updateAvatar: (avatar: string) => Promise<void>
@@ -686,12 +706,17 @@ declare global {
           callback: (payload: { username?: string | null }) => void
         ) => () => void
 
-        // AI 模型管理
-        aiModels: {
-          getAll: () => Promise<{ success: boolean; data?: any[]; error?: string }>
-          add: (model: any) => Promise<{ success: boolean; error?: string }>
-          update: (model: any) => Promise<{ success: boolean; error?: string }>
-          delete: (id: string) => Promise<{ success: boolean; error?: string }>
+        // AI 供应商管理
+        aiProviders: {
+          getAll: () => Promise<{ success: boolean; data?: AiProviderStore; error?: string }>
+          add: (provider: AiProviderInput) => Promise<AiProviderMutationResult>
+          update: (provider: AiProviderInput) => Promise<AiProviderMutationResult>
+          delete: (providerId: string) => Promise<AiProviderMutationResult>
+          setEnabled: (providerId: string, enabled: boolean) => Promise<AiProviderMutationResult>
+          fetchModels: (
+            apiUrl: string,
+            apiKey: string
+          ) => Promise<{ success: boolean; data?: AiRemoteModel[]; error?: string }>
         }
 
         // Provider（翻译 / OCR 等）管理

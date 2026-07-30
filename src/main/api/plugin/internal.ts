@@ -28,6 +28,7 @@ import {
   normalizeCommandAliases,
   type CommandAliasStore
 } from '@shared/commandShared'
+import { normalizeSearchWallpaperConfig, type SearchWallpaperConfig } from '@shared/searchWallpaper'
 
 /**
  * 权限错误类
@@ -83,6 +84,7 @@ export class InternalPluginAPI {
 
   /**
    * 注册仅允许内置插件访问的 IPC 能力。
+   * @returns 无返回值
    */
   private setupIPC(): void {
     // ==================== 数据库 API (ZTOOLS/ 命名空间) ====================
@@ -580,14 +582,14 @@ export class InternalPluginAPI {
       }
     })
 
-    // ==================== AI 模型管理 API ====================
-    ipcMain.handle('internal:ai-models-get-all', async (event) => {
+    // ==================== AI 供应商管理 API ====================
+    ipcMain.handle('internal:ai-providers-get-all', async (event) => {
       if (!requireInternalPlugin(this.pluginManager, event)) {
-        throw new PermissionDeniedError('internal:ai-models-get-all')
+        throw new PermissionDeniedError('internal:ai-providers-get-all')
       }
       try {
-        const models = aiModelsAPI.getAllModels()
-        return { success: true, data: models }
+        const providers = aiModelsAPI.getAllProviders()
+        return { success: true, data: providers }
       } catch (error: unknown) {
         return {
           success: false,
@@ -596,26 +598,54 @@ export class InternalPluginAPI {
       }
     })
 
-    ipcMain.handle('internal:ai-models-add', async (event, model: any) => {
+    ipcMain.handle('internal:ai-providers-add', async (event, provider: any) => {
       if (!requireInternalPlugin(this.pluginManager, event)) {
-        throw new PermissionDeniedError('internal:ai-models-add')
+        throw new PermissionDeniedError('internal:ai-providers-add')
       }
-      return await aiModelsAPI.addModel(model)
+      return aiModelsAPI.addProvider(provider)
     })
 
-    ipcMain.handle('internal:ai-models-update', async (event, model: any): Promise<any> => {
+    ipcMain.handle('internal:ai-providers-update', async (event, provider: any): Promise<any> => {
       if (!requireInternalPlugin(this.pluginManager, event)) {
-        throw new PermissionDeniedError('internal:ai-models-update')
+        throw new PermissionDeniedError('internal:ai-providers-update')
       }
-      return await aiModelsAPI.updateModel(model)
+      return aiModelsAPI.updateProvider(provider)
     })
 
-    ipcMain.handle('internal:ai-models-delete', async (event, modelId: string) => {
+    ipcMain.handle('internal:ai-providers-delete', async (event, providerId: string) => {
       if (!requireInternalPlugin(this.pluginManager, event)) {
-        throw new PermissionDeniedError('internal:ai-models-delete')
+        throw new PermissionDeniedError('internal:ai-providers-delete')
       }
-      return await aiModelsAPI.deleteModel(modelId)
+      return aiModelsAPI.deleteProvider(providerId)
     })
+
+    ipcMain.handle(
+      'internal:ai-providers-set-enabled',
+      async (event, providerId: string, enabled: boolean) => {
+        if (!requireInternalPlugin(this.pluginManager, event)) {
+          throw new PermissionDeniedError('internal:ai-providers-set-enabled')
+        }
+        return aiModelsAPI.setProviderEnabled(providerId, enabled)
+      }
+    )
+
+    ipcMain.handle(
+      'internal:ai-providers-fetch-models',
+      async (event, apiUrl: string, apiKey: string) => {
+        if (!requireInternalPlugin(this.pluginManager, event)) {
+          throw new PermissionDeniedError('internal:ai-providers-fetch-models')
+        }
+        try {
+          const data = await aiModelsAPI.fetchModels(apiUrl, apiKey)
+          return { success: true, data }
+        } catch (error: unknown) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : '获取模型列表失败'
+          }
+        }
+      }
+    )
 
     // ==================== Provider（翻译 / OCR 等）管理 API ====================
     ipcMain.handle('internal:providers-get-all', async (event, type?: string) => {
@@ -845,6 +875,13 @@ export class InternalPluginAPI {
       return await systemAPI.selectImageFile()
     })
 
+    ipcMain.handle('internal:select-search-wallpaper', async (event) => {
+      if (!requireInternalPlugin(this.pluginManager, event)) {
+        throw new PermissionDeniedError('internal:select-search-wallpaper')
+      }
+      return await systemAPI.selectSearchWallpaper()
+    })
+
     ipcMain.handle('internal:set-theme', async (event, theme: string) => {
       if (!requireInternalPlugin(this.pluginManager, event)) {
         throw new PermissionDeniedError('internal:set-theme')
@@ -924,6 +961,21 @@ export class InternalPluginAPI {
 
       return { success: true }
     })
+
+    // 主搜索壁纸只属于宿主搜索视图，不向超级面板或分离窗口广播。
+    ipcMain.handle(
+      'internal:update-search-wallpaper',
+      async (event, wallpaper: SearchWallpaperConfig | null) => {
+        if (!requireInternalPlugin(this.pluginManager, event)) {
+          throw new PermissionDeniedError('internal:update-search-wallpaper')
+        }
+
+        // 在跨进程边界再次规范化，避免无效路径配置进入主渲染进程。
+        const normalizedWallpaper = normalizeSearchWallpaperConfig(wallpaper)
+        this.mainWindow?.webContents.send('update-search-wallpaper', normalizedWallpaper)
+        return { success: true }
+      }
+    )
 
     // 通知主渲染进程更新自动粘贴配置
     ipcMain.handle('internal:update-auto-paste', async (event, autoPaste: string) => {
