@@ -204,6 +204,8 @@ interface ActiveWindowResult {
   width?: number
   height?: number
   appPath?: string
+  className?: string
+  hwnd?: number
   isFullscreen?: boolean
   error?: string
 }
@@ -416,7 +418,7 @@ export class WindowManager {
    * 获取当前激活的窗口信息
    * @returns 窗口信息对象
    * - macOS: { app, bundleId, pid, x, y, width, height, isFullscreen }
-   * - Windows: { app, pid, x, y, width, height }
+   * - Windows: { app, pid, x, y, width, height, className, hwnd }
    */
   static getActiveWindow(): ActiveWindowResult | null {
     if (platform === 'linux') {

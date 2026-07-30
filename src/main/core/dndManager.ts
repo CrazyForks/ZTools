@@ -5,6 +5,17 @@ import { WindowManager as NativeWindowManager, type ActiveWindowResult } from '.
 // Windows 未提供明确全屏状态，使用覆盖率和底边位置判断。
 const FULLSCREEN_COVERAGE = 0.95
 const BOTTOM_EDGE_TOLERANCE = 2
+const WINDOWS_DESKTOP_CLASSES = new Set(['Progman', 'WorkerW', 'Shell_TrayWnd'])
+
+/**
+ * 判断 Windows 前台窗口是否为桌面 Shell 窗口。
+ * @param win 前台窗口信息
+ * @returns 窗口属于桌面、任务栏或桌面壁纸承载窗口时返回 true
+ */
+export function isWindowsDesktopWindow(win: ActiveWindowResult): boolean {
+  // 类名是 Windows Shell 的稳定标识，优先于进程名，避免误伤 Explorer 文件夹窗口。
+  return typeof win.className === 'string' && WINDOWS_DESKTOP_CLASSES.has(win.className)
+}
 
 /**
  * 判断前台窗口是否处于全屏状态。
@@ -24,6 +35,9 @@ export function isFullscreenWindow(
 
   // macOS 只信任 AXFullScreen，字段缺失时不再使用窗口尺寸猜测。
   if (platformForTest === 'darwin') return win.isFullscreen === true
+
+  // Windows 桌面 Shell 也会覆盖整个屏幕，必须在几何判断前排除，否则桌面无法唤醒。
+  if (platformForTest === 'win32' && isWindowsDesktopWindow(win)) return false
 
   // Windows 继续使用窗口覆盖率与底边位置判断。
   if (!win.width || !win.height) return false

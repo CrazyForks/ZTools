@@ -12,7 +12,8 @@ vi.mock('../../src/main/core/native/index.js', () => ({
   WindowManager: { getActiveWindow: vi.fn() }
 }))
 
-const { isFullscreenWindow } = await import('../../src/main/core/dndManager')
+const { isFullscreenWindow, isWindowsDesktopWindow } =
+  await import('../../src/main/core/dndManager')
 
 // 以下尺寸全部来自 MacBook Air M4（1470x956 bounds，含刘海）与 Windows 1920x1080 的实测采样
 const MAC = { bounds: { x: 0, y: 0, width: 1470, height: 956 } }
@@ -40,6 +41,30 @@ describe('isFullscreenWindow', () => {
   it('识别 Windows 全屏游戏', () => {
     expect(
       isFullscreenWindow({ app: 'game.exe', x: 0, y: 0, width: 1920, height: 1080 }, WIN, 'win32')
+    ).toBe(true)
+  })
+
+  it('排除 Windows 桌面 Shell 窗口', () => {
+    for (const className of ['Progman', 'WorkerW', 'Shell_TrayWnd']) {
+      expect(
+        isFullscreenWindow(
+          { app: 'explorer.exe', className, x: 0, y: 0, width: 1920, height: 1080 },
+          WIN,
+          'win32'
+        )
+      ).toBe(false)
+      expect(isWindowsDesktopWindow({ app: 'explorer.exe', className })).toBe(true)
+    }
+  })
+
+  it('不把 Explorer 文件夹窗口当作桌面', () => {
+    expect(isWindowsDesktopWindow({ app: 'explorer.exe', className: 'CabinetWClass' })).toBe(false)
+    expect(
+      isFullscreenWindow(
+        { app: 'explorer.exe', className: 'CabinetWClass', x: 0, y: 0, width: 1920, height: 1080 },
+        WIN,
+        'win32'
+      )
     ).toBe(true)
   })
 
