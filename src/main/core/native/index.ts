@@ -418,7 +418,7 @@ export class WindowManager {
    * 获取当前激活的窗口信息
    * @returns 窗口信息对象
    * - macOS: { app, bundleId, pid, x, y, width, height, isFullscreen }
-   * - Windows: { app, pid, x, y, width, height, className, hwnd }
+   * - Windows: { app, pid, x, y, width, height, className, hwnd, isFullscreen }
    */
   static getActiveWindow(): ActiveWindowResult | null {
     if (platform === 'linux') {
@@ -866,10 +866,16 @@ export class OptimizedShortcutManager {
       return
     }
 
-    ;(addon as NativeAddon).ensureOptimizedShortcutListener((payload) => {
-      OptimizedShortcutManager._callback?.(payload)
-    })
-    OptimizedShortcutManager._isListening = true
+    try {
+      ;(addon as NativeAddon).ensureOptimizedShortcutListener((payload) => {
+        OptimizedShortcutManager._callback?.(payload)
+      })
+      OptimizedShortcutManager._isListening = true
+    } catch (error) {
+      OptimizedShortcutManager._callback = null
+      OptimizedShortcutManager._isListening = false
+      throw error
+    }
   }
 
   /**

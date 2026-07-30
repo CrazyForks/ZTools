@@ -116,6 +116,40 @@ export class SettingsAPI {
     this.nativeOptimizedShortcutSet.add(shortcut)
   }
 
+  // native 优化监听失败时清理残留状态，避免影响 Electron 快捷键降级注册。
+  private cleanupFailedNativeOptimizedShortcut(shortcut: string): void {
+    try {
+      const result = OptimizedShortcutManager.unregisterShortcut(shortcut)
+      if (!result.success) {
+        console.warn(`[Settings] 清理失败的 native 优化快捷键未完成: ${shortcut}`, result.error)
+      }
+    } catch (error) {
+      console.warn(`[Settings] 清理失败的 native 优化快捷键异常: ${shortcut}`, error)
+    }
+
+    this.nativeOptimizedShortcutSet.delete(shortcut)
+    if (this.nativeOptimizedShortcutSet.size === 0) {
+      try {
+        OptimizedShortcutManager.stopListener()
+      } catch (error) {
+        console.warn('[Settings] 停止失败的 native 优化快捷键监听异常:', error)
+      }
+    }
+  }
+
+  // 使用 Electron 标准后端注册快捷键。
+  private registerElectronGlobalShortcut(
+    shortcut: string,
+    target: string,
+    preparation: GlobalShortcutPreparation
+  ): boolean {
+    globalShortcut.unregister(shortcut)
+    return globalShortcut.register(shortcut, () => {
+      console.log(`全局快捷键触发: ${shortcut} -> ${target}`)
+      void this.triggerGlobalShortcut(shortcut, preparation)
+    })
+  }
+
   // 注销单个 native 优化快捷键，并在为空时停止底层监听。
   private unregisterNativeOptimizedShortcut(shortcut: string): void {
     const result = OptimizedShortcutManager.unregisterShortcut(shortcut)
@@ -445,18 +479,29 @@ export class SettingsAPI {
 
       if (this.shouldUseNativeOptimizedShortcut(shortcut, preScreenshotOptimization)) {
         globalShortcut.unregister(shortcut)
-        this.registerNativeOptimizedShortcut(shortcut)
-        console.log(`成功注册 native 优化快捷键: ${shortcut} -> ${target}`)
-        return { success: true }
+        try {
+          this.registerNativeOptimizedShortcut(shortcut)
+          console.log(`成功注册 native 优化快捷键: ${shortcut} -> ${target}`)
+          return { success: true }
+        } catch (nativeError) {
+          console.error(
+            `[Settings] native 优化快捷键注册失败，降级到 Electron: ${shortcut}`,
+            nativeError
+          )
+          this.cleanupFailedNativeOptimizedShortcut(shortcut)
+
+          if (this.registerElectronGlobalShortcut(shortcut, target, preparation)) {
+            console.warn(`[Settings] native 优化快捷键已降级到 Electron: ${shortcut}`)
+            return { success: true, degraded: true }
+          }
+
+          throw new Error(
+            `native 优化快捷键注册失败，Electron 降级注册也失败: ${nativeError instanceof Error ? nativeError.message : '未知错误'}`
+          )
+        }
       }
 
-      // 先尝试取消注册该快捷键（如果已被注册），避免重复注册导致失败
-      globalShortcut.unregister(shortcut)
-
-      const success = globalShortcut.register(shortcut, () => {
-        console.log(`全局快捷键触发: ${shortcut} -> ${target}`)
-        void this.triggerGlobalShortcut(shortcut, preparation)
-      })
+      const success = this.registerElectronGlobalShortcut(shortcut, target, preparation)
 
       if (!success) {
         this.releaseGlobalShortcutKeyboardState(shortcut)

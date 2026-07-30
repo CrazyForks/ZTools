@@ -1,11 +1,12 @@
-import { screen } from 'electron'
 import databaseAPI from '../api/shared/database'
 import { WindowManager as NativeWindowManager, type ActiveWindowResult } from './native/index.js'
 
-// Windows 未提供明确全屏状态，使用覆盖率和底边位置判断。
-const FULLSCREEN_COVERAGE = 0.95
-const BOTTOM_EDGE_TOLERANCE = 2
-const WINDOWS_DESKTOP_CLASSES = new Set(['Progman', 'WorkerW', 'Shell_TrayWnd'])
+const WINDOWS_DESKTOP_CLASSES = new Set([
+  'Progman',
+  'WorkerW',
+  'Shell_TrayWnd',
+  'Shell_SecondaryTrayWnd'
+])
 
 /**
  * 判断 Windows 前台窗口是否为桌面 Shell 窗口。
@@ -19,38 +20,27 @@ export function isWindowsDesktopWindow(win: ActiveWindowResult): boolean {
 
 /**
  * 判断前台窗口是否处于全屏状态。
- * macOS 只使用 native 返回的系统全屏属性，Windows 使用窗口几何判断。
+ * macOS 和 Windows 都只使用 native 返回的全屏状态。
  * @param win 前台窗口信息
- * @param displayForTest 测试注入的显示器边界；生产环境不传
  * @param platformForTest 测试注入的平台；生产环境不传
  * @returns 窗口处于全屏状态时返回 true
  */
 export function isFullscreenWindow(
   win: ActiveWindowResult,
-  displayForTest?: { bounds: { x: number; y: number; width: number; height: number } },
   platformForTest: NodeJS.Platform = process.platform
 ): boolean {
   // 排除 ZTools 自身窗口，避免面板已显示时误判为需要屏蔽。
   if (win.pid === process.pid) return false
 
-  // macOS 只信任 AXFullScreen，字段缺失时不再使用窗口尺寸猜测。
-  if (platformForTest === 'darwin') return win.isFullscreen === true
-
-  // Windows 桌面 Shell 也会覆盖整个屏幕，必须在几何判断前排除，否则桌面无法唤醒。
+  // 桌面 Shell 永远不应拦截热键，同时防御旧版 native 或异常返回值。
   if (platformForTest === 'win32' && isWindowsDesktopWindow(win)) return false
 
-  // Windows 继续使用窗口覆盖率与底边位置判断。
-  if (!win.width || !win.height) return false
+  // 两个平台都信任 native 的系统级判定；字段缺失时按非全屏处理，避免误伤热键。
+  if (platformForTest === 'darwin' || platformForTest === 'win32') {
+    return win.isFullscreen === true
+  }
 
-  const display = displayForTest ?? screen.getDisplayNearestPoint({ x: win.x ?? 0, y: win.y ?? 0 })
-  const { bounds } = display
-
-  if (win.width < bounds.width * FULLSCREEN_COVERAGE) return false
-  if (win.height < bounds.height * FULLSCREEN_COVERAGE) return false
-
-  const winBottom = (win.y ?? 0) + win.height
-  const screenBottom = bounds.y + bounds.height
-  return winBottom >= screenBottom - BOTTOM_EDGE_TOLERANCE
+  return false
 }
 
 class DndManager {
