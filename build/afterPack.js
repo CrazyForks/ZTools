@@ -127,7 +127,7 @@ async function prunePlatformSpecificRuntimeFiles(context) {
 }
 
 /**
- * 完成 Electron Builder afterPack 阶段的资源清理、内置插件复制和更新包生成。
+ * 完成 Electron Builder afterPack 阶段的资源清理、安装标记写入和内置插件复制。
  * @param {import('app-builder-lib').AfterPackContext} context Electron Builder 打包上下文。
  * @returns {Promise<void>} 所有 afterPack 操作完成后结束的 Promise。
  * @throws {Error} 内置插件复制或其他必须的打包步骤失败时抛出错误。
@@ -331,59 +331,6 @@ module.exports = async function (context) {
   }
 
   console.log('\n国际化文件清理完成!')
-
-  // 保留 legacy ASAR 更新包，供尚未完整迁移的旧客户端使用。
-  try {
-    console.log('\n开始打包更新文件...')
-    const AdmZip = require('adm-zip')
-
-    // 确定 app.asar 路径
-    let asarPath = ''
-    let unpackedPath = ''
-
-    if (context.electronPlatformName === 'darwin') {
-      const appName = context.packager.appInfo.productFilename
-      const appPath = path.join(context.appOutDir, `${appName}.app`)
-      asarPath = path.join(appPath, 'Contents', 'Resources', 'app.asar')
-      unpackedPath = path.join(appPath, 'Contents', 'Resources', 'app.asar.unpacked')
-    } else {
-      asarPath = path.join(context.appOutDir, 'resources', 'app.asar')
-      unpackedPath = path.join(context.appOutDir, 'resources', 'app.asar.unpacked')
-    }
-
-    if (await pathExists(asarPath)) {
-      // 输出路径
-      const version = context.packager.appInfo.version
-      const archName = context.arch === 3 || context.arch === 'arm64' ? 'arm64' : 'x64'
-      const platform = context.electronPlatformName
-
-      const outDir = path.dirname(context.appOutDir)
-      const zipName = `update-${platform}-${archName}-${version}.zip`
-      const zipPath = path.join(outDir, zipName)
-
-      console.log('正在创建 zip...')
-      const zip = new AdmZip()
-
-      // 添加 app.asar 并重命名为 app.asar.tmp
-      zip.addLocalFile(asarPath, '', 'app.asar.tmp')
-      console.log(`已添加 app.asar (重命名为 app.asar.tmp)`)
-
-      if (await pathExists(unpackedPath)) {
-        zip.addLocalFolder(unpackedPath, 'app.asar.unpacked')
-        console.log(`已添加 app.asar.unpacked`)
-      }
-
-      zip.writeZip(zipPath)
-
-      const stats = await fs.stat(zipPath)
-      console.log(`更新包已生成: ${zipPath}`)
-      console.log(`Total size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`)
-    } else {
-      console.error(`未找到 app.asar: ${asarPath}`)
-    }
-  } catch (err) {
-    console.error('打包更新文件失败:', err)
-  }
 }
 
 // 计算文件夹大小
