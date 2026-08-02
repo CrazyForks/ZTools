@@ -10,6 +10,8 @@ export interface ServerUpdateInfo {
   publishedAt: number
 }
 
+export type UpdateChannel = 'stable' | 'beta'
+
 interface ServerUpdateResponse {
   update: ServerUpdateInfo | null
 }
@@ -32,13 +34,22 @@ export function getUpdateSystemType(): string {
 }
 
 /**
+ * 根据当前应用版本选择服务端更新通道。
+ * @returns 预发布版本使用 beta 通道，正式版本使用 stable 通道。
+ */
+export function getUpdateChannel(): UpdateChannel {
+  return app.getVersion().includes('-') ? 'beta' : 'stable'
+}
+
+/**
  * 从官方服务端执行一次主动更新检查。
  * @returns 服务端返回的最新版本信息；没有适用版本时为 null。
  */
 export async function fetchLatestServerUpdate(): Promise<ServerUpdateInfo | null> {
   const query = new URLSearchParams({
     systemType: getUpdateSystemType(),
-    currentVersion: app.getVersion()
+    currentVersion: app.getVersion(),
+    updateChannel: getUpdateChannel()
   })
   const response = await httpRequest(
     `${syncServerUrlToHttp(DEFAULT_SYNC_SERVER_URL)}/api/updates/latest?${query.toString()}`
@@ -52,7 +63,11 @@ export async function fetchLatestServerUpdate(): Promise<ServerUpdateInfo | null
  * @returns 当前系统可用的下载源列表。
  */
 export async function fetchServerUpdateSources(version: string): Promise<UpdateDownloadSource[]> {
-  const query = new URLSearchParams({ version, systemType: getUpdateSystemType() })
+  const query = new URLSearchParams({
+    version,
+    systemType: getUpdateSystemType(),
+    updateChannel: getUpdateChannel()
+  })
   const response = await httpRequest(
     `${syncServerUrlToHttp(DEFAULT_SYNC_SERVER_URL)}/api/updates/downloads?${query.toString()}`
   )

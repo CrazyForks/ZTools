@@ -3,7 +3,11 @@ import lmdbInstance from '../lmdb/lmdbInstance'
 import pluginDeviceAPI from '../../api/plugin/device'
 import { httpRequest } from '../../utils/httpRequest'
 import { DEFAULT_SYNC_SERVER_URL, syncServerUrlToHttp } from '../../api/renderer/pluginMarketConfig'
-import { getUpdateSystemType, type ServerUpdateInfo } from '../../api/serverUpdateCatalog'
+import {
+  getUpdateChannel,
+  getUpdateSystemType,
+  type ServerUpdateInfo
+} from '../../api/serverUpdateCatalog'
 
 const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
 
@@ -93,7 +97,8 @@ class ActivityHeartbeatService {
           deviceId,
           uid: token ? config?.username || '' : '',
           ztoolsVersion,
-          systemType: getUpdateSystemType()
+          systemType: getUpdateSystemType(),
+          updateChannel: getUpdateChannel()
         }),
         validateStatus: (status) => (status >= 200 && status < 300) || status === 401
       }
