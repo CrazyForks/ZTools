@@ -3,6 +3,7 @@ import lmdbInstance from '../lmdb/lmdbInstance'
 import pluginDeviceAPI from '../../api/plugin/device'
 import { httpRequest } from '../../utils/httpRequest'
 import { DEFAULT_SYNC_SERVER_URL, syncServerUrlToHttp } from '../../api/renderer/pluginMarketConfig'
+import { getUpdateSystemType, type ServerUpdateInfo } from '../../api/serverUpdateCatalog'
 
 const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
 
@@ -16,6 +17,16 @@ type StoredSyncConfig = {
 class ActivityHeartbeatService {
   private timer: NodeJS.Timeout | null = null
   private inFlight = false
+  private updateHandler: ((update: ServerUpdateInfo | null) => void | Promise<void>) | null = null
+
+  /**
+   * 注册心跳更新信息的消费回调。
+   * @param handler 接收服务端更新信息的回调函数。
+   * @returns 无返回值。
+   */
+  setUpdateHandler(handler: (update: ServerUpdateInfo | null) => void | Promise<void>): void {
+    this.updateHandler = handler
+  }
 
   start(): void {
     if (this.timer) return
@@ -40,11 +51,15 @@ class ActivityHeartbeatService {
     this.inFlight = true
     try {
       const config = await this.loadConfig()
-      const status = await this.postHeartbeat(config)
-      if (status !== 401) return
+      const response = await this.postHeartbeat(config)
+      if (response.status !== 401) {
+        await this.updateHandler?.(response.update)
+        return
+      }
       const refreshed = await this.refreshToken(config)
       if (refreshed) {
-        await this.postHeartbeat(refreshed)
+        const retry = await this.postHeartbeat(refreshed)
+        await this.updateHandler?.(retry.update)
       }
     } catch (error) {
       console.warn('[ActivityHeartbeat] 上报失败:', error)
@@ -56,9 +71,11 @@ class ActivityHeartbeatService {
   /**
    * 向官方服务端提交当前设备的活跃心跳和 ZTools 版本。
    * @param config 当前同步账号配置；未登录时为 null
-   * @returns 服务端返回的 HTTP 状态码
+   * @returns 服务端返回的 HTTP 状态码和更新信息
    */
-  private async postHeartbeat(config: StoredSyncConfig | null): Promise<number> {
+  private async postHeartbeat(
+    config: StoredSyncConfig | null
+  ): Promise<{ status: number; update: ServerUpdateInfo | null }> {
     const deviceId = pluginDeviceAPI.getDeviceIdPublic()
     const token = config?.serverUrl === DEFAULT_SYNC_SERVER_URL ? config.token : ''
 
@@ -75,12 +92,16 @@ class ActivityHeartbeatService {
         body: JSON.stringify({
           deviceId,
           uid: token ? config?.username || '' : '',
-          ztoolsVersion
+          ztoolsVersion,
+          systemType: getUpdateSystemType()
         }),
         validateStatus: (status) => (status >= 200 && status < 300) || status === 401
       }
     )
-    return response.status
+    return {
+      status: response.status,
+      update: response.status === 200 ? (response.data?.update ?? null) : null
+    }
   }
 
   private async refreshToken(config: StoredSyncConfig | null): Promise<StoredSyncConfig | null> {

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { getPreloadPath, getRendererPath } from '../utils/appBundlePath'
 import createPlatformUpdater from '@platform-updater'
@@ -6,15 +6,20 @@ import type { PlatformUpdateInfo, PlatformUpdaterService } from './platformUpdat
 import databaseAPI from './shared/database.js'
 import windowManager from '../managers/windowManager'
 import { applyWindowMaterial, getDefaultWindowMaterial } from '../utils/windowUtils.js'
+import {
+  fetchLatestServerUpdate,
+  resolvePlatformUpdateInfo,
+  type ServerUpdateInfo
+} from './serverUpdateCatalog'
 
 export class UpdaterAPI {
   private mainWindow: BrowserWindow | null = null
-  private checkTimer: NodeJS.Timeout | null = null
   private availableUpdateInfo: PlatformUpdateInfo | null = null
   private downloadedUpdateInfo: PlatformUpdateInfo | null = null
   private updateWindow: BrowserWindow | null = null
   private platformUpdater: PlatformUpdaterService | null = null
   private initializationPromise: Promise<void> = Promise.resolve()
+  private lastAutoNotifiedVersion = ''
 
   public init(mainWindow: BrowserWindow): void {
     this.mainWindow = mainWindow
@@ -30,7 +35,6 @@ export class UpdaterAPI {
     })
 
     this.setupIPC()
-    this.startAutoCheck()
   }
 
   private handleUpdateDownloaded(info: PlatformUpdateInfo, showWindow: boolean): void {
@@ -61,6 +65,9 @@ export class UpdaterAPI {
     ipcMain.handle('updater:check-update', () => this.checkUpdate())
     ipcMain.handle('updater:show-update-window', () => this.showUpdateWindow())
     ipcMain.handle('updater:start-update', () => this.startUpdate())
+    ipcMain.handle('updater:open-download-source', (_event, sourceID: number) =>
+      this.openDownloadSource(sourceID)
+    )
     ipcMain.handle('updater:install-downloaded-update', () => this.installDownloadedUpdate())
     ipcMain.handle('updater:get-download-status', () => this.getDownloadStatus())
 
@@ -77,52 +84,33 @@ export class UpdaterAPI {
     })
   }
 
-  private startAutoCheck(): void {
-    try {
-      const settings = databaseAPI.dbGet('settings-general')
-      const autoCheck = settings?.autoCheckUpdate ?? true
-
-      if (!autoCheck) {
-        console.log('[Updater] 自动检查更新已禁用')
-        return
-      }
-
-      void this.autoCheckAndNotify()
-      this.cleanupTimer()
-      this.checkTimer = setInterval(() => void this.autoCheckAndNotify(), 30 * 60 * 1000)
-    } catch (error) {
-      console.error('[Updater] 启动自动检查更新失败:', error)
-      void this.autoCheckAndNotify()
-      this.checkTimer = setInterval(() => void this.autoCheckAndNotify(), 30 * 60 * 1000)
-    }
-  }
-
-  private stopAutoCheck(): void {
-    this.cleanupTimer()
-    console.log('[Updater] 自动检查更新已停止')
-  }
-
   /**
    * 启用或停止自动检查更新，并将最新开关状态同步给主窗口。
    * @param enabled 是否启用自动检查更新
    * @returns 无返回值
    */
   public setAutoCheck(enabled: boolean): void {
-    // 根据持久化设置切换自动检查任务。
-    if (enabled) this.startAutoCheck()
-    else this.stopAutoCheck()
-
-    // 通知主窗口立即更新提示可见性，无需等待下次启动重新读取设置。
+    // 更新检查由活动心跳统一调度，开关只控制是否展示自动提示。
     this.sendUpdateEvent('auto-check-update-changed', enabled)
+    if (enabled) void this.checkUpdate()
   }
 
-  private async autoCheckAndNotify(): Promise<void> {
-    await this.initializationPromise
-    if (!this.platformUpdater) return
-
-    const result = await this.platformUpdater.checkForUpdates(false)
-    if (result.error) console.error('[Updater] 自动检查更新失败:', result.error)
-    if (result.hasUpdate && result.updateInfo) this.notifyAvailableUpdate(result.updateInfo)
+  /**
+   * 消费活动心跳返回的版本信息，并按用户设置展示一次自动更新提示。
+   * @param update 服务端心跳返回的更新信息；没有适用版本时为 null。
+   * @returns 更新信息处理完成后的 Promise。
+   */
+  public async handleHeartbeatUpdate(update: ServerUpdateInfo | null): Promise<void> {
+    if (!update?.available || update.latestVersion === this.lastAutoNotifiedVersion) return
+    const settings = databaseAPI.dbGet('settings-general')
+    if (settings?.autoCheckUpdate === false) return
+    try {
+      const info = await resolvePlatformUpdateInfo(update)
+      this.lastAutoNotifiedVersion = info.version
+      this.showAvailableUpdate(info)
+    } catch (error) {
+      console.error('[Updater] 解析服务端更新信息失败:', error)
+    }
   }
 
   private getDownloadStatus(): ReturnType<PlatformUpdaterService['getDownloadStatus']> & {
@@ -160,27 +148,42 @@ export class UpdaterAPI {
   }
 
   public cleanup(): void {
-    this.cleanupTimer()
     this.platformUpdater?.cleanup()
-  }
-
-  private cleanupTimer(): void {
-    if (this.checkTimer) {
-      clearInterval(this.checkTimer)
-      this.checkTimer = null
-    }
   }
 
   public async checkUpdate(): Promise<
     Awaited<ReturnType<PlatformUpdaterService['checkForUpdates']>>
   > {
-    await this.initializationPromise
-    if (!this.platformUpdater) {
-      return { success: false, hasUpdate: false, status: 'error', error: '更新器尚未初始化' }
+    try {
+      const update = await fetchLatestServerUpdate()
+      if (!update?.available) {
+        return {
+          success: true,
+          status: 'not-available',
+          hasUpdate: false,
+          currentVersion: app.getVersion(),
+          latestVersion: update?.latestVersion
+        }
+      }
+      const info = await resolvePlatformUpdateInfo(update)
+      this.showAvailableUpdate(info)
+      return {
+        success: true,
+        status: 'available',
+        hasUpdate: true,
+        currentVersion: app.getVersion(),
+        latestVersion: info.version,
+        updateInfo: info
+      }
+    } catch (error) {
+      return {
+        success: false,
+        status: 'error',
+        hasUpdate: false,
+        currentVersion: app.getVersion(),
+        error: error instanceof Error ? error.message : '检查更新失败'
+      }
     }
-    const result = await this.platformUpdater.checkForUpdates(false)
-    if (result.hasUpdate && result.updateInfo) this.showAvailableUpdate(result.updateInfo)
-    return result
   }
 
   /**
@@ -199,7 +202,33 @@ export class UpdaterAPI {
     if (!this.platformUpdater) return { success: false, error: '更新器尚未初始化' }
     const updateInfo = this.availableUpdateInfo ?? this.downloadedUpdateInfo
     if (!updateInfo) return { success: false, error: '没有可用的更新' }
+    if (updateInfo.manualDownloadRequired) {
+      const manualSource = updateInfo.sources?.find((source) => !source.isDirect)
+      if (!manualSource) return { success: false, error: '没有可用的手动下载地址' }
+      return this.openDownloadSource(manualSource.id)
+    }
     return this.platformUpdater.startUpdate(updateInfo)
+  }
+
+  /**
+   * 使用系统浏览器打开当前版本中已由服务端登记的下载源。
+   * @param sourceID 下载接口返回的下载源标识。
+   * @returns 浏览器是否成功打开对应 HTTPS 地址。
+   */
+  private async openDownloadSource(
+    sourceID: number
+  ): Promise<{ success: boolean; error?: string }> {
+    const info = this.availableUpdateInfo ?? this.downloadedUpdateInfo
+    const source = info?.sources?.find((item) => item.id === sourceID)
+    if (!source) return { success: false, error: '下载地址不存在' }
+    try {
+      const target = new URL(source.downloadUrl)
+      if (target.protocol !== 'https:') return { success: false, error: '下载地址不安全' }
+      await shell.openExternal(target.toString())
+      return { success: true }
+    } catch {
+      return { success: false, error: '无法打开下载地址' }
+    }
   }
 
   /**

@@ -32,6 +32,15 @@
       </div>
       <div class="footer-actions">
         <button class="btn cancel" :disabled="isBusy" @click="closeWindow">稍后更新</button>
+        <button
+          v-for="source in manualSources"
+          :key="source.id"
+          class="btn manual"
+          :disabled="isBusy"
+          @click="openManualSource(source.id)"
+        >
+          {{ source.platformName }}下载
+        </button>
         <button class="btn confirm" :disabled="isBusy || !updateInfo" @click="startUpdate">
           {{ updateInfo?.manualDownloadRequired ? '前往下载' : primaryButtonText }}
         </button>
@@ -52,6 +61,15 @@ interface UpdateInfo {
   downloadUrl?: string
   manualDownloadRequired?: boolean
   releaseUrl?: string
+  sources?: UpdateDownloadSource[]
+}
+
+interface UpdateDownloadSource {
+  id: number
+  platformName: string
+  downloadUrl: string
+  isDirect: boolean
+  feedUrl?: string
 }
 
 interface DownloadProgress {
@@ -96,6 +114,9 @@ const primaryButtonText = computed(() => {
   if (status.value === 'error') return '重试下载'
   return '下载并更新'
 })
+const manualSources = computed(() =>
+  (updateInfo.value?.sources ?? []).filter((source) => !source.isDirect)
+)
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 MB'
@@ -146,6 +167,20 @@ const startUpdate = async (): Promise<void> => {
     }
   } catch (error) {
     updateError.value = error instanceof Error ? error.message : '更新失败，请重试'
+    status.value = 'error'
+  }
+}
+
+/**
+ * 使用浏览器打开服务端登记的人工下载平台。
+ * @param sourceID 下载源标识。
+ * @returns 操作处理完成后的 Promise。
+ */
+const openManualSource = async (sourceID: number): Promise<void> => {
+  if (isBusy.value) return
+  const result = await window.ztools.updater.openDownloadSource(sourceID)
+  if (!result.success) {
+    updateError.value = result.error || '打开下载页面失败'
     status.value = 'error'
   }
 }
@@ -456,8 +491,19 @@ body,
 
 .footer-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.manual {
+  background: transparent;
+  color: #2563eb;
+  border: 1px solid rgba(37, 99, 235, 0.35);
+}
+
+.manual:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.08);
 }
 
 .update-status {
@@ -508,6 +554,11 @@ body,
 }
 
 @media (prefers-color-scheme: dark) {
+  .manual {
+    color: #93c5fd;
+    border-color: rgba(147, 197, 253, 0.35);
+  }
+
   .footer {
     border-top: 1px solid rgba(255, 255, 255, 0.06);
     background: rgba(30, 30, 30, 0.5);
