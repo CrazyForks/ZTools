@@ -1,4 +1,4 @@
-# 3.0.2-beta.7
+# 3.0.2-beta.8
 
 ## 新功能 (Feat)
 
@@ -15,6 +15,7 @@
 - `ztools.createBrowserWindow` 支持在相对页面地址中携带 query 和 hash 参数（PR [#613](../../pull/613)，感谢 [@xiaou66](https://github.com/xiaou66) 的贡献 🎉）
 - 软件更新支持网盘下载源
 - 新增消息中心，可接收评论回复
+- 正式版支持检查beta版本
 
 ## 修复 (Fix)
 

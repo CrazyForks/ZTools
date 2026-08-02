@@ -2,6 +2,9 @@ import { app } from 'electron'
 import { DEFAULT_SYNC_SERVER_URL, syncServerUrlToHttp } from './renderer/pluginMarketConfig'
 import { httpRequest } from '../utils/httpRequest'
 import type { PlatformUpdateInfo, UpdateDownloadSource } from './platformUpdater/types'
+import databaseAPI from './shared/database'
+import { HOST_STORAGE_KEYS } from '../../shared/storageKeys'
+import { resolveUpdateChannel, type UpdateChannel } from '../../shared/updateChannel'
 
 export interface ServerUpdateInfo {
   available: boolean
@@ -9,8 +12,6 @@ export interface ServerUpdateInfo {
   releaseNotes: string
   publishedAt: number
 }
-
-export type UpdateChannel = 'stable' | 'beta'
 
 interface ServerUpdateResponse {
   update: ServerUpdateInfo | null
@@ -34,11 +35,19 @@ export function getUpdateSystemType(): string {
 }
 
 /**
- * 根据当前应用版本选择服务端更新通道。
- * @returns 预发布版本使用 beta 通道，正式版本使用 stable 通道。
+ * 根据当前应用版本和本地更新偏好选择服务端更新通道。
+ * @returns 当前应使用的 stable 或 beta 通道。
  */
 export function getUpdateChannel(): UpdateChannel {
-  return app.getVersion().includes('-') ? 'beta' : 'stable'
+  const version = app.getVersion()
+  try {
+    // Beta 订阅属于设备级更新偏好，所有更新查询和心跳统一读取同一设置。
+    const settings = databaseAPI.dbGet(HOST_STORAGE_KEYS.settingsGeneral)
+    return resolveUpdateChannel(version, settings?.receiveBetaUpdates === true)
+  } catch (error) {
+    console.warn('[Updater] 读取 Beta 更新偏好失败，使用版本默认通道:', error)
+    return resolveUpdateChannel(version)
+  }
 }
 
 /**
