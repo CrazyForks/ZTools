@@ -6,6 +6,7 @@ import type { PlatformUpdateInfo, PlatformUpdaterService } from './platformUpdat
 import databaseAPI from './shared/database.js'
 import windowManager from '../managers/windowManager'
 import { applyWindowMaterial, getDefaultWindowMaterial } from '../utils/windowUtils.js'
+import { isInAppUpdateSource } from '../../shared/updateSource'
 import {
   fetchLatestServerUpdate,
   resolvePlatformUpdateInfo,
@@ -64,7 +65,9 @@ export class UpdaterAPI {
   private setupIPC(): void {
     ipcMain.handle('updater:check-update', () => this.checkUpdate())
     ipcMain.handle('updater:show-update-window', () => this.showUpdateWindow())
-    ipcMain.handle('updater:start-update', () => this.startUpdate())
+    ipcMain.handle('updater:start-update', (_event, sourceID?: number) =>
+      this.startUpdate(sourceID)
+    )
     ipcMain.handle('updater:open-download-source', (_event, sourceID: number) =>
       this.openDownloadSource(sourceID)
     )
@@ -187,27 +190,48 @@ export class UpdaterAPI {
   }
 
   /**
-   * 下载并安装当前可用更新，开发环境则显示不支持升级的提示。
+   * 使用用户选择的下载渠道执行当前更新，人工渠道直接在浏览器中打开。
+   * @param sourceID 用户在更新窗口中选择的下载源标识；未提供时沿用默认渠道。
    * @returns 更新流程启动结果。
    */
-  public async startUpdate(): Promise<{
+  public async startUpdate(sourceID?: number): Promise<{
     success: boolean
     migrationRequired?: boolean
     error?: string
   }> {
-    // 检查更新可在开发环境运行，但下载和安装必须依赖完整打包产物。
-    if (!app.isPackaged) return this.rejectDevelopmentUpdate()
-
-    await this.initializationPromise
-    if (!this.platformUpdater) return { success: false, error: '更新器尚未初始化' }
     const updateInfo = this.availableUpdateInfo ?? this.downloadedUpdateInfo
     if (!updateInfo) return { success: false, error: '没有可用的更新' }
-    if (updateInfo.manualDownloadRequired) {
-      const manualSource = updateInfo.sources?.find((source) => !source.isDirect)
+
+    // 渠道由服务端下发，手动渠道无需初始化安装器即可跳转浏览器。
+    const selectedSource =
+      typeof sourceID === 'number'
+        ? updateInfo.sources?.find((source) => source.id === sourceID)
+        : undefined
+    if (typeof sourceID === 'number' && !selectedSource) {
+      return { success: false, error: '下载渠道不存在' }
+    }
+    if (selectedSource && !isInAppUpdateSource(selectedSource)) {
+      return this.openDownloadSource(selectedSource.id)
+    }
+    if (!selectedSource && updateInfo.manualDownloadRequired) {
+      const manualSource = updateInfo.sources?.find((source) => !isInAppUpdateSource(source))
       if (!manualSource) return { success: false, error: '没有可用的手动下载地址' }
       return this.openDownloadSource(manualSource.id)
     }
-    return this.platformUpdater.startUpdate(updateInfo)
+
+    // 应用内下载安装必须依赖打包产物和已经初始化的平台更新器。
+    if (!app.isPackaged) return this.rejectDevelopmentUpdate()
+    await this.initializationPromise
+    if (!this.platformUpdater) return { success: false, error: '更新器尚未初始化' }
+    const selectedUpdateInfo = selectedSource
+      ? {
+          ...updateInfo,
+          downloadUrl: selectedSource.downloadUrl,
+          feedUrl: selectedSource.feedUrl,
+          manualDownloadRequired: false
+        }
+      : updateInfo
+    return this.platformUpdater.startUpdate(selectedUpdateInfo)
   }
 
   /**
