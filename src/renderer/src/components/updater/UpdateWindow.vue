@@ -32,20 +32,35 @@
       </div>
       <div class="footer-main">
         <div class="source-area">
-          <label v-if="showSourceSelector" class="source-selector">
-            <span class="source-label">下载渠道</span>
-            <select
-              v-model.number="selectedSourceID"
-              :disabled="sourceSelectionDisabled"
-              @keydown.stop
-            >
-              <option v-for="source in availableSources" :key="source.id" :value="source.id">
-                {{ source.platformName }}
-              </option>
-            </select>
-          </label>
-          <div v-if="showSourceSelector" class="source-description">
-            {{ selectedSourceDescription }}
+          <div v-if="showSourceSelector" class="source-selector">
+            <label class="source-label" for="update-source">下载渠道</label>
+            <div class="source-select-control">
+              <select
+                id="update-source"
+                v-model.number="selectedSourceID"
+                :class="{ 'has-help': selectedSource?.platformName.includes('夸克') }"
+                :disabled="sourceSelectionDisabled"
+                @keydown.stop
+              >
+                <option v-for="source in availableSources" :key="source.id" :value="source.id">
+                  {{ source.platformName }}
+                </option>
+              </select>
+              <button
+                v-if="selectedSource?.platformName.includes('夸克')"
+                type="button"
+                class="source-help"
+                aria-label="查看夸克网盘下载说明"
+                aria-describedby="quark-source-tooltip"
+                @keydown.stop
+              >
+                <span aria-hidden="true">?</span>
+                <span id="quark-source-tooltip" class="source-tooltip" role="tooltip">
+                  通过夸克网盘下载并转存时，ZTools
+                  可能获得少量渠道收益，用于分担服务器和持续维护成本。感谢你的支持。
+                </span>
+              </button>
+            </div>
           </div>
         </div>
         <div class="footer-actions">
@@ -139,16 +154,6 @@ const primaryButtonText = computed(() => {
   if (status.value === 'error') return '重试下载'
   return '下载并安装'
 })
-const selectedSourceDescription = computed(() => {
-  const source = selectedSource.value
-  if (!source) return ''
-  if (isInAppUpdateSource(source)) return '应用内下载，完成后自动安装更新。'
-  if (source.platformName.includes('夸克')) {
-    return '通过夸克网盘下载并转存，ZTools 可能获得少量渠道收益，用于分担服务器和持续维护成本。感谢你的支持。'
-  }
-  return '将在浏览器中打开下载页面，请下载后手动覆盖安装。'
-})
-
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 MB'
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -519,7 +524,7 @@ body,
 
 .footer-main {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
 }
@@ -533,6 +538,11 @@ body,
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.source-select-control {
+  position: relative;
+  flex: none;
 }
 
 .source-label {
@@ -555,6 +565,10 @@ body,
   cursor: pointer;
 }
 
+.source-selector select.has-help {
+  padding-right: 48px;
+}
+
 .source-selector select:focus {
   border-color: #3b82f6;
 }
@@ -564,12 +578,71 @@ body,
   opacity: 0.65;
 }
 
-.source-description {
-  max-width: 285px;
-  margin-top: 7px;
-  color: #777;
+.source-help {
+  position: absolute;
+  top: 50%;
+  right: 27px;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 50%;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  color: #666;
+  font-family: inherit;
   font-size: 11px;
-  line-height: 1.45;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+  transform: translateY(-50%);
+}
+
+.source-help:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.45);
+  outline-offset: 2px;
+}
+
+.source-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  box-sizing: border-box;
+  width: 250px;
+  padding: 9px 11px;
+  border-radius: 6px;
+  background: rgba(34, 34, 34, 0.96);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-40%, 4px);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.source-tooltip::after {
+  content: '';
+  position: absolute;
+  left: 40%;
+  top: 100%;
+  border: 5px solid transparent;
+  border-top-color: rgba(34, 34, 34, 0.96);
+  transform: translateX(-50%);
+}
+
+.source-help:hover .source-tooltip,
+.source-help:focus .source-tooltip {
+  opacity: 1;
+  transform: translate(-40%, 0);
 }
 
 .update-status {
@@ -635,8 +708,9 @@ body,
     color: #e5e5e5;
   }
 
-  .source-description {
-    color: #999;
+  .source-help {
+    border-color: rgba(255, 255, 255, 0.32);
+    color: #bbb;
   }
 }
 

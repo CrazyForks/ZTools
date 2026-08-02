@@ -1,8 +1,12 @@
 import { app } from 'electron'
-import lmdbInstance from '../lmdb/lmdbInstance'
 import pluginDeviceAPI from '../../api/plugin/device'
 import { httpRequest } from '../../utils/httpRequest'
 import { DEFAULT_SYNC_SERVER_URL, syncServerUrlToHttp } from '../../api/renderer/pluginMarketConfig'
+import {
+  loadStoredSyncConfig,
+  refreshStoredSyncTokens,
+  type StoredSyncConfig
+} from '../sync/syncAuthTokenService'
 import {
   getUpdateChannel,
   getUpdateSystemType,
@@ -10,13 +14,6 @@ import {
 } from '../../api/serverUpdateCatalog'
 
 const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
-
-type StoredSyncConfig = {
-  serverUrl?: string
-  token?: string
-  refreshToken?: string
-  username?: string
-}
 
 class ActivityHeartbeatService {
   private timer: NodeJS.Timeout | null = null
@@ -50,6 +47,10 @@ class ActivityHeartbeatService {
     void this.sendHeartbeat()
   }
 
+  /**
+   * 上报当前设备活跃状态，并在访问令牌过期时通过统一服务刷新后重试一次。
+   * @returns 上报完成后的 Promise。
+   */
   private async sendHeartbeat(): Promise<void> {
     if (this.inFlight) return
     this.inFlight = true
@@ -60,9 +61,16 @@ class ActivityHeartbeatService {
         await this.updateHandler?.(response.update)
         return
       }
-      const refreshed = await this.refreshToken(config)
-      if (refreshed) {
-        const retry = await this.postHeartbeat(refreshed)
+      const refreshed = await refreshStoredSyncTokens(config?.refreshToken)
+      if (
+        (refreshed.status === 'refreshed' || refreshed.status === 'reused') &&
+        refreshed.config.token
+      ) {
+        const retry = await this.postHeartbeat(refreshed.config)
+        await this.updateHandler?.(retry.update)
+      } else if (refreshed.status === 'invalid') {
+        // 登录凭据确认失效后仍以匿名心跳获取版本更新信息。
+        const retry = await this.postHeartbeat(null)
         await this.updateHandler?.(retry.update)
       }
     } catch (error) {
@@ -109,43 +117,12 @@ class ActivityHeartbeatService {
     }
   }
 
-  private async refreshToken(config: StoredSyncConfig | null): Promise<StoredSyncConfig | null> {
-    if (!config?.refreshToken || config.serverUrl !== DEFAULT_SYNC_SERVER_URL) {
-      return null
-    }
-    const response = await httpRequest(
-      `${syncServerUrlToHttp(DEFAULT_SYNC_SERVER_URL)}/api/auth/refresh`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: config.refreshToken }),
-        validateStatus: (status) => status >= 200 && status < 500
-      }
-    )
-    if (response.status !== 200 || !response.data?.token || !response.data?.refreshToken) {
-      return null
-    }
-    const nextConfig = {
-      ...config,
-      token: response.data.token,
-      refreshToken: response.data.refreshToken
-    }
-    const existingDoc = await lmdbInstance.promises.get('SYNC/config')
-    await lmdbInstance.promises.put({
-      _id: 'SYNC/config',
-      _rev: existingDoc?._rev,
-      data: nextConfig
-    })
-    return nextConfig
-  }
-
+  /**
+   * 从设备级路由存储读取心跳所需的账号配置。
+   * @returns 当前配置；读取失败或未配置时返回 null。
+   */
   private async loadConfig(): Promise<StoredSyncConfig | null> {
-    try {
-      const doc = await lmdbInstance.promises.get('SYNC/config')
-      return doc?.data || null
-    } catch {
-      return null
-    }
+    return loadStoredSyncConfig()
   }
 }
 
