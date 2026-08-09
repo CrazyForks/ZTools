@@ -17,10 +17,7 @@ vi.mock('../../src/main/utils/httpRequest.js', () => ({
   httpRequest: mockHttpRequest
 }))
 
-import {
-  onSyncCredentialsInvalidated,
-  refreshStoredSyncTokens
-} from '../../src/main/core/sync/syncAuthTokenService'
+import { CredentialSessionService } from '../../src/main/core/auth/credentialSessionService'
 
 type StoredDoc = {
   _id: string
@@ -33,11 +30,13 @@ type StoredDoc = {
   }
 }
 
-describe('syncAuthTokenService', () => {
+describe('CredentialSessionService', () => {
   let storedDoc: StoredDoc
+  let service: CredentialSessionService
 
   beforeEach(() => {
     vi.clearAllMocks()
+    service = new CredentialSessionService('AUTH/test-session')
     storedDoc = createStoredDoc('old-token', 'old-refresh-token', 'zing')
     mockGet.mockImplementation(async () => structuredClone(storedDoc))
     mockPut.mockImplementation(async (doc: StoredDoc) => {
@@ -55,8 +54,8 @@ describe('syncAuthTokenService', () => {
         })
     )
 
-    const first = refreshStoredSyncTokens('old-refresh-token')
-    const second = refreshStoredSyncTokens('old-refresh-token')
+    const first = service.refresh('old-refresh-token')
+    const second = service.refresh('old-refresh-token')
     await vi.waitFor(() => expect(mockHttpRequest).toHaveBeenCalledTimes(1))
 
     resolveRequest?.({
@@ -74,10 +73,10 @@ describe('syncAuthTokenService', () => {
   it('reuses a newer persisted token without sending a stale refresh request', async () => {
     storedDoc = createStoredDoc('new-token', 'new-refresh-token', 'zing')
 
-    const result = await refreshStoredSyncTokens('stale-refresh-token')
+    const result = await service.refresh('stale-refresh-token')
 
     expect(result.status).toBe('reused')
-    expect(result.config.token).toBe('new-token')
+    expect(result.session.token).toBe('new-token')
     expect(mockHttpRequest).not.toHaveBeenCalled()
     expect(mockPut).not.toHaveBeenCalled()
   })
@@ -92,7 +91,7 @@ describe('syncAuthTokenService', () => {
         })
     )
 
-    const pending = refreshStoredSyncTokens('switch-old-refresh-token')
+    const pending = service.refresh('switch-old-refresh-token')
     await vi.waitFor(() => expect(mockHttpRequest).toHaveBeenCalledTimes(1))
     storedDoc = createStoredDoc('other-token', 'other-refresh-token', 'other-user')
     resolveRequest?.({
@@ -102,7 +101,7 @@ describe('syncAuthTokenService', () => {
 
     const result = await pending
     expect(result.status).toBe('reused')
-    expect(result.config.username).toBe('other-user')
+    expect(result.session.username).toBe('other-user')
     expect(storedDoc.data.token).toBe('other-token')
     expect(mockPut).not.toHaveBeenCalled()
   })
@@ -128,21 +127,21 @@ describe('syncAuthTokenService', () => {
         return { ok: true, id: doc._id, rev: '3-test' }
       })
 
-    const result = await refreshStoredSyncTokens('conflict-refresh-token')
+    const result = await service.refresh('conflict-refresh-token')
 
     expect(result.status).toBe('refreshed')
     expect(mockPut).toHaveBeenCalledTimes(2)
     expect(storedDoc.data.token).toBe('conflict-next-token')
-    expect((storedDoc.data as any).lastSyncTime).toBe(123)
+    expect(storedDoc.data.username).toBe('zing')
   })
 
   it('clears credentials and notifies listeners after a confirmed invalid refresh token', async () => {
     storedDoc = createStoredDoc('invalid-token', 'invalid-refresh-token', 'zing')
     const invalidated = vi.fn()
-    const stopListening = onSyncCredentialsInvalidated(invalidated)
+    const stopListening = service.onInvalidated(invalidated)
     mockHttpRequest.mockResolvedValue({ status: 401, data: { error: 'Invalid refresh token' } })
 
-    const result = await refreshStoredSyncTokens('invalid-refresh-token')
+    const result = await service.refresh('invalid-refresh-token')
     stopListening()
 
     expect(result.status).toBe('invalid')
@@ -151,6 +150,19 @@ describe('syncAuthTokenService', () => {
     expect(invalidated).toHaveBeenCalledWith(
       expect.objectContaining({ username: 'zing', token: '', refreshToken: '' })
     )
+  })
+
+  it('clears credentials without an invalidation event for an explicit logout', async () => {
+    const invalidated = vi.fn()
+    const stopListening = service.onInvalidated(invalidated)
+
+    const result = await service.clear({ notifyInvalidated: false })
+    stopListening()
+
+    expect(result).toMatchObject({ username: 'zing', token: '', refreshToken: '' })
+    expect(storedDoc.data.token).toBe('')
+    expect(storedDoc.data.refreshToken).toBe('')
+    expect(invalidated).not.toHaveBeenCalled()
   })
 
   it('reuses credentials refreshed by another caller before invalid-token cleanup', async () => {
@@ -164,17 +176,17 @@ describe('syncAuthTokenService', () => {
       .mockResolvedValueOnce(structuredClone(newDoc))
     mockHttpRequest.mockResolvedValue({ status: 401, data: { error: 'Invalid refresh token' } })
 
-    const result = await refreshStoredSyncTokens('race-refresh-token')
+    const result = await service.refresh('race-refresh-token')
 
     expect(result.status).toBe('reused')
-    expect(result.config.token).toBe('race-next-token')
+    expect(result.session.token).toBe('race-next-token')
     expect(mockPut).not.toHaveBeenCalled()
   })
 
   it('clears a stale access token when a legacy config has no refresh token', async () => {
     storedDoc = createStoredDoc('legacy-token', '', 'zing')
 
-    const result = await refreshStoredSyncTokens()
+    const result = await service.refresh()
 
     expect(result.status).toBe('invalid')
     expect(storedDoc.data.token).toBe('')
@@ -185,7 +197,7 @@ describe('syncAuthTokenService', () => {
     storedDoc = createStoredDoc('offline-token', 'offline-refresh-token', 'zing')
     mockHttpRequest.mockRejectedValue(new Error('network unavailable'))
 
-    const result = await refreshStoredSyncTokens('offline-refresh-token')
+    const result = await service.refresh('offline-refresh-token')
 
     expect(result.status).toBe('unavailable')
     expect(storedDoc.data.token).toBe('offline-token')
@@ -203,7 +215,7 @@ describe('syncAuthTokenService', () => {
  */
 function createStoredDoc(token: string, refreshToken: string, username: string): StoredDoc {
   return {
-    _id: 'SYNC/config',
+    _id: 'AUTH/test-session',
     _rev: '1-test',
     data: {
       serverUrl: 'wss://z-tools.top',

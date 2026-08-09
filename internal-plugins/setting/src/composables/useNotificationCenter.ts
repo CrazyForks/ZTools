@@ -1,5 +1,5 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
-import { ACCOUNT_CHANGED_EVENT, ONLINE_SYNC_SERVER_URL } from './useZToolsAccount'
+import { ACCOUNT_CHANGED_EVENT } from './useZToolsAccount'
 
 export interface NotificationItem {
   id: number
@@ -287,9 +287,8 @@ async function archiveNotification(item: NotificationItem): Promise<boolean> {
  */
 async function isOfficialAccountLoggedIn(): Promise<boolean> {
   try {
-    const result = await window.ztools.internal.syncGetConfig()
-    const config = result.success ? result.config : null
-    return Boolean(config?.token && config.serverUrl === ONLINE_SYNC_SERVER_URL)
+    const result = await window.ztools.internal.accountGetSession()
+    return Boolean(result.success && result.session?.token)
   } catch {
     return false
   }

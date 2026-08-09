@@ -1,9 +1,8 @@
-import lmdbInstance from '../../core/lmdb/lmdbInstance'
 import {
-  loadStoredSyncConfig,
-  refreshStoredSyncTokens,
-  type StoredSyncConfig
-} from '../../core/sync/syncAuthTokenService'
+  loadOfficialAccountSession,
+  refreshOfficialAccountTokens,
+  saveOfficialAccountSession
+} from '../../core/account/officialAccountService'
 import type { HttpRequestOptions, HttpResponse } from '../../utils/httpRequest'
 import { httpRequest } from '../../utils/httpRequest.js'
 
@@ -33,8 +32,8 @@ export async function getPluginMarketAuthHeaders(
 ): Promise<Record<string, string>> {
   void marketApiBase
   try {
-    const config = await getStoredSyncConfig()
-    if (!config?.token || config.serverUrl !== DEFAULT_SYNC_SERVER_URL) {
+    const config = await loadOfficialAccountSession()
+    if (!config?.token) {
       return {}
     }
     return { Authorization: `Bearer ${config.token}` }
@@ -86,22 +85,11 @@ export async function savePluginMarketTokens(input: {
   refreshToken?: string
   username?: string
 }): Promise<void> {
-  const existingDoc = await lmdbInstance.promises.get('SYNC/config')
-  const current = (existingDoc?.data || {}) as StoredSyncConfig
-  const next: StoredSyncConfig = {
-    ...current,
-    enabled: Boolean(current.enabled),
-    serverUrl: input.serverUrl || current.serverUrl || DEFAULT_SYNC_SERVER_URL,
+  if (!input.username) throw new Error('官方账号用户名不能为空')
+  await saveOfficialAccountSession({
+    username: input.username,
     token: input.token,
-    refreshToken: input.refreshToken || current.refreshToken || '',
-    syncInterval: current.syncInterval || 30,
-    lastSyncTime: current.lastSyncTime || 0,
-    username: input.username || current.username
-  }
-  await lmdbInstance.promises.put({
-    _id: 'SYNC/config',
-    _rev: existingDoc?._rev,
-    data: next
+    refreshToken: input.refreshToken || ''
   })
 }
 
@@ -136,22 +124,14 @@ async function requestPluginMarketOnce(
  */
 async function refreshPluginMarketToken(marketApiBase: string): Promise<boolean> {
   void marketApiBase
-  const config = await getStoredSyncConfig()
-  if (!config?.refreshToken || config.serverUrl !== DEFAULT_SYNC_SERVER_URL) {
+  const config = await loadOfficialAccountSession()
+  if (!config?.refreshToken) {
     return false
   }
-  const result = await refreshStoredSyncTokens(config.refreshToken)
+  const result = await refreshOfficialAccountTokens(config.refreshToken)
   return (
-    (result.status === 'refreshed' || result.status === 'reused') && Boolean(result.config.token)
+    (result.status === 'refreshed' || result.status === 'reused') && Boolean(result.session.token)
   )
-}
-
-/**
- * 读取插件市场认证使用的设备级同步配置。
- * @returns 当前同步配置；读取失败或未配置时返回 null。
- */
-async function getStoredSyncConfig(): Promise<StoredSyncConfig | null> {
-  return loadStoredSyncConfig()
 }
 
 function assertOK(response: HttpResponse): void {

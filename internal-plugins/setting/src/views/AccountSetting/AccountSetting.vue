@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import defaultAvatar from '@/assets/image/default.png'
 import { useToast } from '@/components'
-import { ONLINE_SYNC_SERVER_URL, notifyAccountChanged } from '@/composables/useZToolsAccount'
+import { notifyAccountChanged } from '@/composables/useZToolsAccount'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -108,11 +108,10 @@ async function loadAccount(): Promise<void> {
   loadingProfile.value = true
 
   try {
-    // 个人中心只允许当前 ZTools 云同步账号访问。
-    const result = await window.ztools.internal.syncGetConfig()
-    const config = result.success ? result.config : null
-    const uid = config?.username || ''
-    const isLoggedIn = Boolean(config?.token && config.serverUrl === ONLINE_SYNC_SERVER_URL && uid)
+    const result = await window.ztools.internal.accountGetSession()
+    const session = result.success ? result.session : null
+    const uid = session?.username || ''
+    const isLoggedIn = Boolean(session?.token && uid)
     if (!isLoggedIn) {
       await router.replace({ name: 'GeneralSetting' })
       return
@@ -218,16 +217,8 @@ async function changeAvatar(): Promise<void> {
  */
 async function logout(): Promise<void> {
   try {
-    // 先停止同步任务，再清空持久化登录凭据。
-    await window.ztools.internal.syncStopAutoSync()
-    await window.ztools.internal.syncSaveConfig({
-      enabled: false,
-      serverUrl: ONLINE_SYNC_SERVER_URL,
-      token: '',
-      refreshToken: '',
-      syncInterval: 30,
-      username: ''
-    })
+    const result = await window.ztools.internal.accountLogout()
+    if (!result.success) throw new Error(result.error || '退出登录失败')
 
     notifyAccountChanged()
     success('已退出登录')
@@ -274,16 +265,13 @@ async function saveNickname(): Promise<void> {
   try {
     updatingNickname.value = true
 
-    // 提交前重新读取令牌，避免使用已过期或已退出的账号状态。
-    const config = await window.ztools.internal.syncGetConfig()
-    if (!config.success || !config.config?.token) {
+    const account = await window.ztools.internal.accountGetSession()
+    if (!account.success || !account.session?.token) {
       error('未登录，无法修改昵称')
       return
     }
 
     const result = await window.ztools.internal.syncUpdateNickname({
-      serverUrl: config.config.serverUrl,
-      token: config.config.token,
       nickname: newNickname
     })
     if (!result.success || !result.profile) {

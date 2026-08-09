@@ -139,9 +139,9 @@ async function loadComments(): Promise<void> {
 
 async function loadLoginDefaults(): Promise<void> {
   try {
-    const result = await window.ztools.internal.syncGetConfig()
-    if (result.success && result.config) {
-      currentUsername.value = result.config.username || ''
+    const result = await window.ztools.internal.accountGetSession()
+    if (result.success && result.session) {
+      currentUsername.value = result.session.username || ''
     } else {
       currentUsername.value = ''
     }

@@ -3,7 +3,6 @@ import defaultAvatar from '@/assets/image/default.png'
 import { AccountLoginDialog, useToast } from '@/components'
 import {
   ACCOUNT_CHANGED_EVENT,
-  ONLINE_SYNC_SERVER_URL,
   loginZToolsAccount,
   notifyAccountChanged,
   promptDefaultDataImportAfterLogin
@@ -63,7 +62,7 @@ onMounted(() => {
   window.addEventListener(ACCOUNT_CHANGED_EVENT, handleAccountChanged)
   stopSyncStatusListener =
     window.ztools.internal.onSyncStatusChanged?.((payload = {}) => {
-      if (payload.credentialsInvalidated) {
+      if (payload.credentialsInvalidated || payload.accountCredentialsInvalidated) {
         void loadAccount()
       }
     }) || null
@@ -82,10 +81,10 @@ function handleAccountChanged(): void {
 async function loadAccount(): Promise<void> {
   const version = (accountLoadVersion += 1)
   try {
-    const result = await window.ztools.internal.syncGetConfig()
-    const config = result.success ? result.config : null
-    const uid = config?.username || ''
-    const isLoggedIn = Boolean(config?.token && config.serverUrl === ONLINE_SYNC_SERVER_URL && uid)
+    const result = await window.ztools.internal.accountGetSession()
+    const session = result.success ? result.session : null
+    const uid = session?.username || ''
+    const isLoggedIn = Boolean(session?.token && uid)
     if (version !== accountLoadVersion) return
 
     loginUsername.value = uid
@@ -240,18 +239,12 @@ async function handleGithubLoginSuccess(data: {
   isNew: boolean
 }): Promise<void> {
   try {
-    // 保存配置（与账号密码登录相同的逻辑）
-    const configResult = await window.ztools.internal.syncGetConfig()
-    const currentConfig = configResult.success ? configResult.config : null
-
-    await window.ztools.internal.syncSaveConfig({
-      enabled: Boolean(currentConfig?.enabled),
-      serverUrl: ONLINE_SYNC_SERVER_URL,
+    const saved = await window.ztools.internal.accountSaveSession({
       token: data.token,
       refreshToken: data.refreshToken,
-      syncInterval: currentConfig?.syncInterval || 30,
       username: data.username
     })
+    if (!saved.success) throw new Error(saved.error || '保存官方账号失败')
 
     // 关闭登录对话框
     loginVisible.value = false

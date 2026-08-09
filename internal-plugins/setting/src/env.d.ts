@@ -491,16 +491,42 @@ declare global {
         }>
 
         // 数据同步（WebSocket 版）
+        accountGetSession: () => Promise<{
+          success: boolean
+          session?: {
+            serverUrl: string
+            username: string
+            token: string
+            refreshToken?: string
+          } | null
+          error?: string
+        }>
+        accountLogin: (params: {
+          username: string
+          password: string
+          captchaVerifyParam?: string
+        }) => Promise<{
+          success: boolean
+          token?: string
+          refreshToken?: string
+          isNew?: boolean
+          error?: string
+        }>
+        accountSaveSession: (params: {
+          username: string
+          token: string
+          refreshToken?: string
+        }) => Promise<{ success: boolean; error?: string }>
+        accountLogout: () => Promise<{ success: boolean; error?: string }>
         syncGetConfig: () => Promise<{
           success: boolean
           config?: {
+            provider: 'official' | 'private'
             enabled: boolean
             serverUrl: string
-            token: string
-            refreshToken?: string
             syncInterval: number
             lastSyncTime: number
-            username?: string
+            deviceId?: string
           }
           error?: string
         }>
@@ -575,13 +601,26 @@ declare global {
           isNew?: boolean
           error?: string
         }>
+        syncLoginPrivate: (params: {
+          serverUrl: string
+          username: string
+          password: string
+        }) => Promise<{
+          success: boolean
+          token?: string
+          refreshToken?: string
+          isNew?: boolean
+          error?: string
+        }>
+        syncLogoutPrivate: () => Promise<{
+          success: boolean
+          error?: string
+        }>
         syncSaveConfig: (config: {
+          provider?: 'official' | 'private'
           enabled: boolean
           serverUrl: string
-          token: string
-          refreshToken?: string
           syncInterval: number
-          username?: string
         }) => Promise<{
           success: boolean
           error?: string
@@ -602,6 +641,14 @@ declare global {
               deviceId: string
               username?: string
             } | null
+            profile?: {
+              provider: 'official' | 'private'
+              enabled: boolean
+              serverUrl: string
+              syncInterval: number
+              lastSyncTime: number
+              deviceId?: string
+            }
             state: string
             loggedIn: boolean
             username: string
@@ -617,6 +664,12 @@ declare global {
               lastError?: string
               nextRetryAt?: number
             } | null
+            officialAccount?: { loggedIn: boolean; username: string }
+            privateSession?: {
+              loggedIn: boolean
+              serverUrl: string
+              username: string
+            }
           }
           error?: string
         }>
@@ -685,11 +738,7 @@ declare global {
           }
           error?: string
         }>
-        syncUpdateNickname: (params: {
-          serverUrl: string
-          token: string
-          nickname: string
-        }) => Promise<{
+        syncUpdateNickname: (params: { nickname: string }) => Promise<{
           success: boolean
           profile?: {
             uid: string
@@ -731,7 +780,7 @@ declare global {
         }>
         syncResetLocalSyncState: () => Promise<{
           success: boolean
-          documentsMarked?: number
+          documentsQueued?: number
           tasksCleared?: number
           error?: string
         }>
@@ -742,6 +791,7 @@ declare global {
             lastSyncTime?: number
             lastError?: string
             credentialsInvalidated?: boolean
+            accountCredentialsInvalidated?: boolean
             refresh?: boolean
           }) => void
         ) => () => void

@@ -111,11 +111,7 @@ export class SyncClient extends EventEmitter {
     this.authReconnectBlocked = false
     this.setState('connecting')
     console.log(`[SyncClient][Trace] state connecting +${Date.now() - this.startTraceAt}ms`)
-    this.checkAndResetOnAccountSwitch(config.username)
-    console.log(
-      `[SyncClient][Trace] account checkpoint check done +${Date.now() - this.startTraceAt}ms`
-    )
-    this.checkpoint = this.checkpointStore.load(config.username, config.deviceId)
+    this.checkpoint = this.checkpointStore.load(config.username, config.deviceId, config.serverUrl)
     this.remotePullSeq = this.checkpoint.remotePullSeq
     this.localPushSeq = this.checkpoint.localPushSeq
     console.log('[SyncClient][Trace] checkpoint loaded', {
@@ -196,8 +192,43 @@ export class SyncClient extends EventEmitter {
     this.beginBatchPush(fullChanges)
   }
 
+  /**
+   * 统计指定同步目标尚未确认的唯一文档数量。
+   * @param config 要查询的同步目标；省略时使用当前活动配置。
+   * @returns 当前目标 checkpoint 之后的文档和删除记录数量。
+   */
+  getPendingDocumentCount(config?: SyncConfig | null): number {
+    const activeConfig = config || this.config
+    const checkpoint = activeConfig
+      ? this.checkpointStore.load(
+          activeConfig.username,
+          activeConfig.deviceId,
+          activeConfig.serverUrl
+        )
+      : this.checkpoint
+    const pendingDocIds = new Set<string>()
+
+    for (const change of this.db.getChangesSince(checkpoint.localPushSeq)) {
+      if (this.isSyncDocument(change.docId)) pendingDocIds.add(change.docId)
+    }
+
+    // 新同步目标尚无本地游标时，当前快照中的文档也必须进入首次推送。
+    if (checkpoint.localPushSeq === 0) {
+      for (const prefix of SYNC_PREFIXES) {
+        for (const doc of this.db.allDocs(prefix)) pendingDocIds.add(doc._id)
+      }
+    }
+
+    return pendingDocIds.size
+  }
+
+  /**
+   * 重置当前同步目标的 checkpoint 和重试任务，并按本地快照重新排队。
+   * @param config 要重置的同步目标；省略时使用当前活动配置。
+   * @returns 重新排队的文档数量和清理的重试任务数量。
+   */
   resetLocalSyncState(config?: SyncConfig | null): {
-    documentsMarked: number
+    documentsQueued: number
     tasksCleared: number
   } {
     const activeConfig = config || this.config
@@ -211,21 +242,25 @@ export class SyncClient extends EventEmitter {
     this.fullScanPushUpperSeq = null
     this.checkpointLoadedFromRemote = false
 
-    const documentsMarked = this.markAllLocalDocsUnsynced()
     const tasksCleared = this.taskStore.clear()
 
-    this.checkpoint = this.checkpointStore.reset(activeConfig?.username, activeConfig?.deviceId)
+    this.checkpoint = this.checkpointStore.reset(
+      activeConfig?.username,
+      activeConfig?.deviceId,
+      activeConfig?.serverUrl
+    )
     this.remotePullSeq = 0
     this.localPushSeq = 0
     this.checkpointId = activeConfig ? this.buildCheckpointIdFor(activeConfig) : ''
     this.shouldResetRemoteCheckpoint = Boolean(activeConfig?.enabled)
+    const documentsQueued = this.getPendingDocumentCount(activeConfig)
     this.retryScheduler.emitStatus()
 
     if (activeConfig && shouldRestart) {
       this.start(activeConfig)
     }
 
-    return { documentsMarked, tasksCleared }
+    return { documentsQueued, tasksCleared }
   }
 
   private setState(state: SyncState): void {
@@ -327,7 +362,11 @@ export class SyncClient extends EventEmitter {
           !!msg.features?.snapshotPull &&
           (localProtocolVersion < SYNC_PROTOCOL_VERSION ||
             (serverEpoch > 0 && localEpoch < serverEpoch))
-        this.checkpoint = this.checkpointStore.load(this.config?.username, this.config?.deviceId)
+        this.checkpoint = this.checkpointStore.load(
+          this.config?.username,
+          this.config?.deviceId,
+          this.config?.serverUrl
+        )
         this.remotePullSeq = this.checkpoint.remotePullSeq
         this.localPushSeq = this.checkpoint.localPushSeq
         this.checkpointLoadedFromRemote = false
@@ -713,17 +752,22 @@ export class SyncClient extends EventEmitter {
     this.beginBatchPush(fullChanges)
   }
 
+  /**
+   * 为没有本地 checkpoint 的同步目标构建完整文档和删除快照。
+   * @returns 无返回值。
+   */
   private startFullScanPush(): void {
     const syncPrefixes = SYNC_PREFIXES
     const fullChanges: FullChangeEntry[] = []
+    const currentDocIds = new Set<string>()
     const now = Date.now()
     this.fullScanPushUpperSeq = this.db.getLastSeq()
 
     for (const prefix of syncPrefixes) {
       const docs = this.db.allDocs(prefix)
       for (const doc of docs) {
+        currentDocIds.add(doc._id)
         const meta = this.db.getSyncMeta(doc._id)
-        if (meta?._cloudSynced) continue // 已从云端同步，无需回传
         fullChanges.push(
           this.withRevisionHistory({
             seq: 0,
@@ -735,6 +779,23 @@ export class SyncClient extends EventEmitter {
           })
         )
       }
+    }
+
+    // checkpoint 丢失或目标首次连接时，全量快照还必须包含最新删除 tombstone。
+    const latestChanges = new Map<string, FullChangeEntry>()
+    for (const change of this.db.getChangesSince(0)) {
+      if (!this.isSyncDocument(change.docId)) continue
+      latestChanges.set(change.docId, { ...change, doc: null })
+    }
+    for (const change of latestChanges.values()) {
+      if (!change.deleted || currentDocIds.has(change.docId)) continue
+      fullChanges.push(
+        this.withRevisionHistory({
+          ...change,
+          seq: 0,
+          doc: null
+        })
+      )
     }
 
     if (fullChanges.length === 0) {
@@ -891,48 +952,16 @@ export class SyncClient extends EventEmitter {
       })
   }
 
+  /**
+   * 完成当前批次队列，并在客户端仍处于推送状态时进入实时模式。
+   * @returns 无返回值。
+   */
   private finishAllPush(): void {
-    // 批量标记所有同步前缀的文档为已同步
-    const syncPrefixes = SYNC_PREFIXES
-    const syncApi = (this.db as any).syncApi
-    if (syncApi?.batchUpdateSyncStatus) {
-      const ids: string[] = []
-      for (const prefix of syncPrefixes) {
-        const docs = this.db.allDocs(prefix)
-        for (const doc of docs) {
-          ids.push(doc._id)
-        }
-      }
-      if (ids.length > 0) {
-        syncApi.batchUpdateSyncStatus(ids, true)
-      }
-    }
-
     console.log(`[SyncClient] 全部推送完成, localPushSeq: ${this.localPushSeq}`)
 
     if (this.state === 'pushing') {
       this.enterLiveMode()
     }
-  }
-
-  private markAllLocalDocsUnsynced(): number {
-    const docIds = new Set<string>()
-    for (const prefix of SYNC_PREFIXES) {
-      for (const doc of this.db.allDocs(prefix)) {
-        docIds.add(doc._id)
-      }
-    }
-
-    const syncApi = (this.db as any).syncApi
-    if (syncApi?.batchUpdateSyncStatus) {
-      syncApi.batchUpdateSyncStatus([...docIds], false)
-    } else {
-      for (const docId of docIds) {
-        ;(this.db as any).promises?.updateSyncStatus?.(docId, false)
-      }
-    }
-
-    return docIds.size
   }
 
   // ==================== 阶段三：实时同步 ====================
@@ -1324,6 +1353,15 @@ export class SyncClient extends EventEmitter {
     return 0
   }
 
+  /**
+   * 判断文档是否属于账号同步白名单。
+   * @param docId 待检查的文档 ID。
+   * @returns 文档需要进入同步链路时返回 true。
+   */
+  private isSyncDocument(docId: string): boolean {
+    return SYNC_PREFIXES.some((prefix) => docId.startsWith(prefix))
+  }
+
   // ==================== 辅助方法 ====================
 
   private send(msg: ClientMessage): void {
@@ -1384,27 +1422,6 @@ export class SyncClient extends EventEmitter {
     this.taskStore.markFailed(this.currentPushTaskId, error, 'pending')
     this.currentPushTaskId = null
     this.retryScheduler.emitStatus()
-  }
-
-  /**
-   * 检测账号切换：若当前账号与上次不同，清零两个 seq，触发全量同步
-   */
-  private checkAndResetOnAccountSwitch(currentUid?: string): void {
-    if (!currentUid) return
-    try {
-      const metaDb = this.db.getMetaDb()
-      const storedUid = metaDb.get('_sync_uid')
-      if (storedUid === currentUid) return
-
-      // 账号切换（或首次登录）：清零所有同步进度
-      console.log(`[SyncClient] 账号切换 ${storedUid || '(首次)'} → ${currentUid}，重置同步进度`)
-      this.checkpoint = this.checkpointStore.reset(currentUid, this.config?.deviceId)
-      metaDb.putSync('_sync_uid', currentUid)
-      this.remotePullSeq = 0
-      this.localPushSeq = 0
-    } catch {
-      // 忽略
-    }
   }
 }
 

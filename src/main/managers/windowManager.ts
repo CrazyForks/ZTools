@@ -160,8 +160,14 @@ class WindowManager {
     }
   }
 
+  /**
+   * 判断当前是否应阻止失焦自动隐藏，E2E 模式始终保持窗口可见。
+   *
+   * @returns 需要阻止失焦隐藏时返回 true。
+   */
   private isBlurHideSuppressed(): boolean {
     return (
+      process.env.ZTOOLS_E2E === '1' ||
       this.suppressBlurHide ||
       this.modalDialogBlurHideSuppressed ||
       this.transientBlurSuppressTimer !== null
@@ -321,6 +327,8 @@ class WindowManager {
 
   /**
    * 创建主窗口
+   *
+   * @returns 创建完成的主窗口实例。
    */
   public createWindow(): BrowserWindow {
     // 智能检测：在鼠标所在的显示器上打开窗口
@@ -509,7 +517,10 @@ class WindowManager {
       }
     })
 
-    this.startMouseStateTracking()
+    if (process.env.ZTOOLS_E2E !== '1') {
+      // 系统级鼠标监听不属于界面冒烟测试范围，避免请求权限和产生全局副作用。
+      this.startMouseStateTracking()
+    }
 
     this.mainWindow.on('show', () => {
       // 开始恢复焦点流程，防止 focus 事件监听器修改 lastFocusTarget
@@ -535,7 +546,7 @@ class WindowManager {
 
     // 阻止窗口被销毁（Command+W 时隐藏而不是关闭）
     this.mainWindow.on('close', (event) => {
-      if (!this.isQuitting) {
+      if (process.env.ZTOOLS_E2E !== '1' && !this.isQuitting) {
         event.preventDefault()
 
         // 若当前处于插件页面，先退出插件回到主搜索框

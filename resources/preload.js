@@ -1167,7 +1167,19 @@ window.ztools = {
       await electron.ipcRenderer.invoke('sync:test-connection', config),
     syncGetCaptchaConfig: async (params) =>
       await electron.ipcRenderer.invoke('sync:get-captcha-config', params),
+    accountGetSession: async () => await electron.ipcRenderer.invoke('account:get-session'),
+    accountLogin: async (params) => await electron.ipcRenderer.invoke('account:login', params),
+    accountSaveSession: async (params) =>
+      await electron.ipcRenderer.invoke('account:save-session', params),
+    accountLogout: async () => await electron.ipcRenderer.invoke('account:logout'),
     syncLogin: async (params) => await electron.ipcRenderer.invoke('sync:login', params),
+    syncLoginPrivate: async (params) =>
+      await electron.ipcRenderer.invoke('sync:login-private', params),
+    /**
+     * 注销当前私有同步服务器会话。
+     * @returns {Promise<{success: boolean, error?: string}>} 主进程注销结果
+     */
+    syncLogoutPrivate: async () => await electron.ipcRenderer.invoke('sync:logout-private'),
     syncSaveConfig: async (config) => await electron.ipcRenderer.invoke('sync:save-config', config),
     syncGetConfig: async () => await electron.ipcRenderer.invoke('sync:get-config'),
     syncGetState: async () => await electron.ipcRenderer.invoke('sync:get-state'),

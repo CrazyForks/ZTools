@@ -3,10 +3,10 @@ import pluginDeviceAPI from '../../api/plugin/device'
 import { httpRequest } from '../../utils/httpRequest'
 import { DEFAULT_SYNC_SERVER_URL, syncServerUrlToHttp } from '../../api/renderer/pluginMarketConfig'
 import {
-  loadStoredSyncConfig,
-  refreshStoredSyncTokens,
-  type StoredSyncConfig
-} from '../sync/syncAuthTokenService'
+  loadOfficialAccountSession,
+  refreshOfficialAccountTokens
+} from '../account/officialAccountService'
+import type { CredentialSession } from '../auth/credentialSessionService'
 import {
   getUpdateChannel,
   getUpdateSystemType,
@@ -43,7 +43,12 @@ class ActivityHeartbeatService {
     this.timer = null
   }
 
+  /**
+   * 立即触发一次官方服务心跳；E2E 模式跳过真实网络请求以保持测试隔离。
+   * @returns 无返回值。
+   */
   runNow(): void {
+    if (process.env.ZTOOLS_E2E === '1') return
     void this.sendHeartbeat()
   }
 
@@ -61,12 +66,12 @@ class ActivityHeartbeatService {
         await this.updateHandler?.(response.update)
         return
       }
-      const refreshed = await refreshStoredSyncTokens(config?.refreshToken)
+      const refreshed = await refreshOfficialAccountTokens(config?.refreshToken)
       if (
         (refreshed.status === 'refreshed' || refreshed.status === 'reused') &&
-        refreshed.config.token
+        refreshed.session.token
       ) {
-        const retry = await this.postHeartbeat(refreshed.config)
+        const retry = await this.postHeartbeat(refreshed.session)
         await this.updateHandler?.(retry.update)
       } else if (refreshed.status === 'invalid') {
         // 登录凭据确认失效后仍以匿名心跳获取版本更新信息。
@@ -86,7 +91,7 @@ class ActivityHeartbeatService {
    * @returns 服务端返回的 HTTP 状态码和更新信息
    */
   private async postHeartbeat(
-    config: StoredSyncConfig | null
+    config: CredentialSession | null
   ): Promise<{ status: number; update: ServerUpdateInfo | null }> {
     const deviceId = pluginDeviceAPI.getDeviceIdPublic()
     const token = config?.serverUrl === DEFAULT_SYNC_SERVER_URL ? config.token : ''
@@ -121,8 +126,8 @@ class ActivityHeartbeatService {
    * 从设备级路由存储读取心跳所需的账号配置。
    * @returns 当前配置；读取失败或未配置时返回 null。
    */
-  private async loadConfig(): Promise<StoredSyncConfig | null> {
-    return loadStoredSyncConfig()
+  private async loadConfig(): Promise<CredentialSession | null> {
+    return loadOfficialAccountSession()
   }
 }
 

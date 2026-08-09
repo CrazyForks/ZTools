@@ -208,9 +208,16 @@ export class PluginManager {
       console.log('[Plugin] 检测到无界面插件(Config):', pluginConfig.name)
       return { pluginUrl: pathToFileURL(hideWindowHtml).href, isConfigHeadless }
     }
-    if (isDevelopment && pluginConfig.development?.main) {
-      console.log('[Plugin] 开发中插件，使用 development.main:', pluginConfig.development.main)
-      return { pluginUrl: pluginConfig.development.main, isConfigHeadless }
+    if (isDevelopment) {
+      // E2E 使用独立端口，避免占用日常设置插件开发服务器的 5177 端口。
+      const developmentMain =
+        pluginConfig.name === 'setting' && process.env.ZTOOLS_SETTING_DEV_SERVER_URL
+          ? process.env.ZTOOLS_SETTING_DEV_SERVER_URL
+          : pluginConfig.development?.main
+      if (developmentMain) {
+        console.log('[Plugin] 开发中插件，使用 development.main:', developmentMain)
+        return { pluginUrl: developmentMain, isConfigHeadless }
+      }
     }
     if (pluginConfig.main.startsWith('http')) {
       console.log('[Plugin] 网络插件:', pluginConfig.main)

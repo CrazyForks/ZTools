@@ -4,6 +4,7 @@ import path from 'path'
 import { app } from 'electron'
 
 export interface AppDataPathOptions {
+  dataRoot?: string
   homeDir?: string
   legacyUserDataPath?: string
 }
@@ -24,8 +25,18 @@ export interface ZToolsDataLayout {
   legacyUserDataPath: string
 }
 
+/**
+ * 获取 ZTools 数据根目录，测试进程可通过显式配置隔离真实用户数据。
+ *
+ * @param options 数据目录解析选项。
+ * @returns ZTools 数据根目录绝对路径。
+ */
 export function getZToolsRoot(options: AppDataPathOptions = {}): string {
-  return path.join(options.homeDir || os.homedir(), '.ztools')
+  return (
+    options.dataRoot ||
+    process.env.ZTOOLS_DATA_ROOT ||
+    path.join(options.homeDir || os.homedir(), '.ztools')
+  )
 }
 
 export function getLmdbRoot(options: AppDataPathOptions = {}): string {
