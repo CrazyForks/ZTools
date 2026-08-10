@@ -257,7 +257,7 @@ onMounted(loadProviders)
             </div>
           </article>
 
-          <div v-if="!loading && store.providers.length === 0" class="empty-state">
+          <div v-if="!loading && store.providers.length === 0" class="empty-state provider-empty">
             <div class="i-z-brain empty-icon font-size-64px" />
             <div class="empty-text">暂无 AI 供应商</div>
             <div class="empty-hint">添加供应商后选择需要使用的模型</div>
@@ -452,6 +452,40 @@ onMounted(loadProviders)
   font-family: inherit;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.provider-empty {
+  position: absolute;
+  inset: 0;
+  padding: 20px;
+  pointer-events: none;
+}
+
+.empty-icon {
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+  opacity: 0.3;
+}
+
+.empty-text {
+  margin-bottom: 8px;
+  color: var(--text-color);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.empty-hint {
+  color: var(--text-secondary);
+  font-size: 14px;
 }
 
 .compact-empty {
