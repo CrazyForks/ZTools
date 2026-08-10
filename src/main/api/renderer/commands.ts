@@ -1,9 +1,9 @@
-import { app, ipcMain, shell } from 'electron'
+import { ipcMain, shell } from 'electron'
 import { execFile } from 'child_process'
 import type { PluginManager } from '../../managers/pluginManager'
 import { promises as fs } from 'fs'
 import path from 'path'
-import { normalizeIconPath } from '../../common/iconUtils'
+import { normalizeIconPath, toZToolsIconUrl } from '../../common/iconUtils'
 import { launchApp, type ConfirmDialogOptions } from '../../core/commandLauncher'
 import { scanApplications } from '../../core/commandScanner'
 import { UwpManager } from '../../core/native'
@@ -182,6 +182,8 @@ export class AppsAPI {
   /**
    * 获取系统应用列表，并处理图标缓存
    * 优先从数据库缓存读取，没有缓存时才扫描
+   *
+   * @returns 系统应用列表；有效缓存存在时直接返回缓存。
    */
   private async getApps(): Promise<any[]> {
     console.log('[Commands] 收到获取应用列表请求')
@@ -190,14 +192,6 @@ export class AppsAPI {
     if (!this.isLocalAppSearchEnabled) {
       console.log('[Commands] 本地应用搜索已关闭，返回空列表')
       return []
-    }
-
-    // 开发模式下强制重新扫描（方便调试）
-    if (!app.isPackaged) {
-      console.log('[Commands] 开发模式：跳过缓存，重新扫描应用...')
-      const apps = await this.scanAndCacheApps()
-      this.notifyFirstAppsReady()
-      return apps
     }
 
     // 尝试从数据库缓存读取
@@ -235,8 +229,8 @@ export class AppsAPI {
       console.log('[Commands] 读取应用缓存失败，将进行扫描:', error)
     }
 
-    // 缓存不存在，执行扫描
-    console.log('[Commands] 缓存不存在，开始扫描应用...')
+    // 缓存缺失、版本过旧或图标格式失效时执行一次修复性扫描。
+    console.log('[Commands] 应用缓存不可用，开始扫描应用...')
     const apps = await this.scanAndCacheApps()
     this.notifyFirstAppsReady()
     return apps
@@ -244,6 +238,8 @@ export class AppsAPI {
 
   /**
    * 扫描应用并缓存到数据库
+   *
+   * @returns 扫描并合并 UWP 应用后的应用列表。
    */
   private async scanAndCacheApps(): Promise<any[]> {
     const apps = await scanApplications()
@@ -268,7 +264,7 @@ export class AppsAPI {
           apps.push({
             name: uwpApp.name,
             path: uwpPath,
-            icon: uwpApp.icon || ''
+            icon: toZToolsIconUrl(uwpApp.icon)
           })
         }
         console.log(`合并 UWP 后共 ${apps.length} 个应用`)

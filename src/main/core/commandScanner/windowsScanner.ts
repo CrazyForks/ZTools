@@ -1,5 +1,6 @@
 import { extractAcronym } from '../../utils/common'
 import { getWindowsRootScanPaths, getWindowsScanPaths } from '../../utils/systemPaths'
+import { toZToolsIconUrl } from '../../common/iconUtils'
 import { WindowsShortcutScanner, type WindowsShortcutInfo } from '../native/index'
 import type { Command } from './types'
 
@@ -53,10 +54,14 @@ export function shouldSkipShortcut(name: string): boolean {
   return SKIP_NAME_PATTERN.test(name)
 }
 
-// 生成图标 URL
+/**
+ * 将 Windows 应用图标源路径转换为动态图标协议 URL。
+ *
+ * @param appPath 用于提取图标的快捷方式、可执行文件或图片路径。
+ * @returns 编码后的 ztools-icon URL。
+ */
 export function getIconUrl(appPath: string): string {
-  // 将绝对路径编码为 URL
-  return `ztools-icon://${encodeURIComponent(appPath)}`
+  return toZToolsIconUrl(appPath)
 }
 
 /**
@@ -107,6 +112,11 @@ export function deduplicateCommands(apps: (Command & { _dedupeTarget?: string })
   return Array.from(uniqueApps.values())
 }
 
+/**
+ * 扫描 Windows 快捷方式并转换为去重后的应用命令。
+ *
+ * @returns 扫描完成后的应用命令；native 扫描失败时返回空数组。
+ */
 export async function scanApplications(): Promise<Command[]> {
   try {
     // 获取 Windows 扫描路径（开始菜单 + 桌面）
@@ -116,7 +126,7 @@ export async function scanApplications(): Promise<Command[]> {
 
     // 原生模块负责递归扫描 Programs + 桌面，并扁平扫描 Start Menu 根
     // 同时在原生模块中处理 desktop.ini 本地化名称、MUI 资源、.url 和 .lnk
-    const nativeEntries = WindowsShortcutScanner.scan(scanPaths, rootScanPaths, SKIP_FOLDERS)
+    const nativeEntries = await WindowsShortcutScanner.scan(scanPaths, rootScanPaths, SKIP_FOLDERS)
     const apps = nativeEntries
       .map((entry) => toCommand(entry))
       .filter((entry): entry is Command & { _dedupeTarget?: string } => entry !== null)

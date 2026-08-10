@@ -1,6 +1,7 @@
 import os from 'os'
-import { execSync, spawnSync } from 'child_process'
-import { clipboard } from 'electron'
+import path from 'path'
+import { execSync, fork, spawnSync } from 'child_process'
+import { app, clipboard } from 'electron'
 import macZToolsNative from '../../../../resources/lib/mac/ztools_native.node?asset'
 import winZToolsNative from '../../../../resources/lib/win/ztools_native.node?asset'
 
@@ -88,6 +89,16 @@ export interface ScreenCaptureResult {
   base64?: string
 }
 
+/** UWP 应用激活结果与前台权限诊断信息。 */
+export interface UwpLaunchResult {
+  success: boolean
+  hresult: number
+  foregroundHresult: number
+  foregroundPermissionGranted: boolean
+  processId: number
+  stage: string
+}
+
 interface NativeAddon {
   startMonitor: (callback: () => void) => void
   stopMonitor: () => void
@@ -126,7 +137,7 @@ interface NativeAddon {
   ) => void
   stopMouseMonitor: () => void
   getUwpApps: () => UwpAppInfo[]
-  launchUwpApp: (appId: string) => boolean
+  launchUwpApp: (appId: string) => UwpLaunchResult
   launchViaExplorer: (options: ExplorerLaunchOptions) => Promise<ExplorerLaunchResult>
   getFileIcon: (filePath: string) => Promise<Buffer>
   resolveMuiStrings: (refs: string[]) => { [ref: string]: string }
@@ -1011,9 +1022,10 @@ export class UwpManager {
   /**
    * 启动 UWP 应用
    * @param {string} appId - AppUserModelID（从 getUwpApps 获取）
-   * @returns {boolean} 是否启动成功
+   * @returns 启动结果与前台权限诊断信息
+   * @throws 当前平台不是 Windows，或 appId 不是非空字符串时抛出
    */
-  static launchUwpApp(appId: string): boolean {
+  static launchUwpApp(appId: string): UwpLaunchResult {
     if (platform !== 'win32') {
       throw new Error('launchUwpApp is only supported on Windows')
     }
@@ -1101,18 +1113,145 @@ export class MuiResolver {
 }
 
 export class WindowsShortcutScanner {
+  /**
+   * 在隔离的 Node 子进程中扫描 Windows 快捷方式。
+   *
+   * @param scanPaths 递归扫描的目录路径。
+   * @param rootScanPaths 仅扫描根层的目录路径。
+   * @param skipFolders 递归时需要跳过的目录名称。
+   * @returns 扫描完成后解析为快捷方式条目数组的 Promise。
+   * @throws 子进程启动失败、超时、native 报错或异常退出时抛出。
+   */
   static scan(
     scanPaths: string[],
     rootScanPaths: string[],
     skipFolders: string[]
-  ): WindowsShortcutInfo[] {
+  ): Promise<WindowsShortcutInfo[]> {
     if (platform !== 'win32') {
       throw new Error('WindowsShortcutScanner is only supported on Windows')
     }
     if (!Array.isArray(scanPaths) || !Array.isArray(rootScanPaths) || !Array.isArray(skipFolders)) {
       throw new TypeError('scanPaths, rootScanPaths and skipFolders must be arrays')
     }
-    return (addon as NativeAddon).scanWindowsShortcuts(scanPaths, rootScanPaths, skipFolders)
+
+    return new Promise((resolve, reject) => {
+      const runnerStartedAt = process.hrtime.bigint()
+
+      // packaged runner 位于 asarUnpack，开发环境则直接使用仓库 resources。
+      const runnerPath = app.isPackaged
+        ? path.join(
+            process.resourcesPath,
+            'app.asar.unpacked',
+            'resources',
+            'windows-shortcut-scanner-runner.cjs'
+          )
+        : path.join(app.getAppPath(), 'resources', 'windows-shortcut-scanner-runner.cjs')
+      const child = fork(runnerPath, [winZToolsNative], {
+        env: {
+          ...process.env,
+          ELECTRON_RUN_AS_NODE: '1'
+        },
+        stdio: ['ignore', 'ignore', 'pipe', 'ipc']
+      })
+      let settled = false
+
+      /**
+       * 统一完成 Promise 并释放 runner，防止多个进程事件重复结算。
+       *
+       * @param error 失败原因；为 null 时使用扫描结果完成。
+       * @param entries 成功时的快捷方式结果。
+       * @param nativeElapsedMs runner 内 native 调用耗时（毫秒）。
+       * @returns 无返回值。
+       */
+      const finish = (
+        error: Error | null,
+        entries: WindowsShortcutInfo[] = [],
+        nativeElapsedMs?: number
+      ): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+
+        // 记录包含进程启动、native 扫描和 IPC 返回在内的完整耗时。
+        const elapsedMs = Number(process.hrtime.bigint() - runnerStartedAt) / 1_000_000
+        const resultLabel = error ? '失败' : `完成，共 ${entries.length} 个条目`
+        const nativeLabel =
+          typeof nativeElapsedMs === 'number'
+            ? `，native 扫描 ${nativeElapsedMs.toFixed(2)} ms`
+            : ''
+        console.log(
+          `[WindowsShortcutScanner] 子进程扫描 ${resultLabel}，总耗时 ${elapsedMs.toFixed(2)} ms${nativeLabel}`
+        )
+
+        child.removeAllListeners('message')
+        child.removeAllListeners('exit')
+        child.stderr?.removeAllListeners()
+
+        // 清理 IPC 时仍保留 error 监听，避免迟到的进程错误成为未处理事件。
+        child.removeAllListeners('error')
+        child.on('error', () => {})
+        if (child.connected) child.disconnect()
+        if (!child.killed) child.kill()
+
+        if (error) {
+          reject(error)
+        } else {
+          resolve(entries)
+        }
+      }
+
+      // OneDrive 或异常 shell 扩展不能无限阻塞应用列表初始化。
+      const timeout = setTimeout(() => {
+        finish(new Error('Windows shortcut scan timed out after 20 seconds'))
+      }, 20_000)
+
+      child.stderr?.on('data', (data: Buffer) => {
+        console.error(`[WindowsShortcutScanner:runner] ${data.toString().trim()}`)
+      })
+
+      child.once('error', (error) => {
+        finish(new Error(`Windows shortcut scanner failed to start: ${error.message}`))
+      })
+
+      child.once('exit', (code, signal) => {
+        finish(
+          new Error(
+            `Windows shortcut scanner exited before returning a result: code=${code}, signal=${signal}`
+          )
+        )
+      })
+
+      child.once('message', (message: unknown) => {
+        if (typeof message !== 'object' || message === null || !('type' in message)) {
+          finish(new Error('Windows shortcut scanner returned an invalid response'))
+          return
+        }
+
+        const response = message as {
+          type: string
+          entries?: WindowsShortcutInfo[]
+          error?: string
+          nativeElapsedMs?: number
+        }
+        if (response.type === 'result' && Array.isArray(response.entries)) {
+          finish(null, response.entries, response.nativeElapsedMs)
+          return
+        }
+
+        finish(
+          new Error(response.error || 'Windows shortcut scanner failed'),
+          [],
+          response.nativeElapsedMs
+        )
+      })
+
+      // 所有监听器和超时保护就绪后再发送请求，避免快速失败事件丢失。
+      child.send({ type: 'scan', scanPaths, rootScanPaths, skipFolders }, (error) => {
+        if (error) {
+          finish(new Error(`Failed to send Windows shortcut scan request: ${error.message}`))
+        }
+      })
+    })
   }
 }
 

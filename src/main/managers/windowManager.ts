@@ -625,10 +625,13 @@ class WindowManager {
 
   /**
    * 创建托盘菜单
+   *
+   * @returns 无返回值。
    */
   private createTrayMenu(): void {
     if (!this.tray) return
 
+    // 使用普通菜单项显示游戏模式状态，避免原生 checkbox 为整个菜单预留勾选栏。
     this.trayMenu = Menu.buildFromTemplate([
       {
         label: '显示/隐藏',
@@ -637,9 +640,7 @@ class WindowManager {
         }
       },
       {
-        label: '游戏模式',
-        type: 'checkbox',
-        checked: dndManager.manualEnabled,
+        label: dndManager.manualEnabled ? '游戏模式 ✓' : '游戏模式',
         click: () => {
           dndManager.toggleManual()
           this.refreshTrayMenu()

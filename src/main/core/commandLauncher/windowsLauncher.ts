@@ -126,6 +126,14 @@ function execCommand(command: string, args: string[] = []): void {
   subprocess.unref()
 }
 
+/**
+ * 按目标类型启动 Windows 应用、UWP 应用、协议或系统命令。
+ *
+ * @param appPath 待启动的路径、协议地址或带 uwp: 前缀的 AppUserModelID。
+ * @param confirmDialog 启动前可选的确认对话框配置。
+ * @returns 启动流程完成后的 Promise。
+ * @throws 用户确认后目标启动失败时抛出。
+ */
 export async function launchApp(
   appPath: string,
   confirmDialog?: ConfirmDialogOptions
@@ -154,8 +162,30 @@ export async function launchApp(
   if (appPath.startsWith('uwp:')) {
     const appId = appPath.slice(4)
     try {
-      UwpManager.launchUwpApp(appId)
-      console.log(`[Launcher] 成功启动 UWP 应用: ${appId}`)
+      // native 会在激活前把当前前台权限转交给 UWP 激活管理器。
+      const result = UwpManager.launchUwpApp(appId)
+      if (!result.success) {
+        const hresultHex = `0x${(result.hresult >>> 0).toString(16).padStart(8, '0')}`
+        throw new Error(`UWP 激活失败: stage=${result.stage}, hresult=${hresultHex}`)
+      }
+
+      // 权限转交失败不阻断应用启动，但必须保留诊断信息以排查焦点限制。
+      if (!result.foregroundPermissionGranted) {
+        const foregroundHresultHex = `0x${(result.foregroundHresult >>> 0)
+          .toString(16)
+          .padStart(8, '0')}`
+        console.warn('[Launcher] UWP 已启动，但前台权限转交失败:', {
+          appId,
+          processId: result.processId,
+          foregroundHresult: result.foregroundHresult,
+          foregroundHresultHex
+        })
+      }
+
+      console.log(`[Launcher] 成功启动 UWP 应用: ${appId}`, {
+        processId: result.processId,
+        foregroundPermissionGranted: result.foregroundPermissionGranted
+      })
       return
     } catch (error) {
       console.error('[Launcher] 启动 UWP 应用失败:', error)
