@@ -22,11 +22,17 @@ export class UpdaterAPI {
   private initializationPromise: Promise<void> = Promise.resolve()
   private lastAutoNotifiedVersion = ''
 
+  /**
+   * 初始化平台更新服务并注册更新窗口使用的 IPC。
+   * @param mainWindow 接收更新状态事件的主窗口。
+   * @returns 无返回值。
+   */
   public init(mainWindow: BrowserWindow): void {
     this.mainWindow = mainWindow
     this.platformUpdater = createPlatformUpdater({
       onDownloadStart: (info) => this.sendUpdateEvent('update-download-start', info),
       onDownloadProgress: (info) => this.sendUpdateEvent('update-download-progress', info),
+      onDownloadCancelled: () => this.sendUpdateEvent('update-download-cancelled', undefined),
       onDownloaded: (info, showWindow) => this.handleUpdateDownloaded(info, showWindow),
       onDownloadFailed: (error) => this.sendUpdateEvent('update-download-failed', { error }),
       onBeforeInstall: () => windowManager.setQuitting(true)
@@ -62,12 +68,17 @@ export class UpdaterAPI {
     this.sendUpdateEvent('update-available', info)
   }
 
+  /**
+   * 注册更新检查、下载、取消和安装相关的 IPC 处理器。
+   * @returns 无返回值。
+   */
   private setupIPC(): void {
     ipcMain.handle('updater:check-update', () => this.checkUpdate())
     ipcMain.handle('updater:show-update-window', () => this.showUpdateWindow())
     ipcMain.handle('updater:start-update', (_event, sourceID?: number) =>
       this.startUpdate(sourceID)
     )
+    ipcMain.handle('updater:cancel-update', () => this.cancelUpdate())
     ipcMain.handle('updater:open-download-source', (_event, sourceID: number) =>
       this.openDownloadSource(sourceID)
     )
@@ -196,6 +207,7 @@ export class UpdaterAPI {
    */
   public async startUpdate(sourceID?: number): Promise<{
     success: boolean
+    cancelled?: boolean
     migrationRequired?: boolean
     error?: string
   }> {
@@ -232,6 +244,20 @@ export class UpdaterAPI {
         }
       : updateInfo
     return this.platformUpdater.startUpdate(selectedUpdateInfo)
+  }
+
+  /**
+   * 取消平台更新器当前正在执行的下载。
+   * @returns 取消请求处理结果。
+   */
+  public async cancelUpdate(): Promise<{
+    success: boolean
+    cancelled?: boolean
+    error?: string
+  }> {
+    await this.initializationPromise
+    if (!this.platformUpdater) return { success: false, error: '更新器尚未初始化' }
+    return this.platformUpdater.cancelUpdate()
   }
 
   /**

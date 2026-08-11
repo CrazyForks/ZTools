@@ -383,6 +383,11 @@ const api = {
     checkUpdate: () => ipcRenderer.invoke('updater:check-update'),
     showUpdateWindow: () => ipcRenderer.invoke('updater:show-update-window'),
     startUpdate: (sourceID?: number) => ipcRenderer.invoke('updater:start-update', sourceID),
+    /**
+     * 取消当前正在进行的应用更新下载。
+     * @returns 主进程确认下载已停止后的结果。
+     */
+    cancelUpdate: () => ipcRenderer.invoke('updater:cancel-update'),
     openDownloadSource: (sourceID: number) =>
       ipcRenderer.invoke('updater:open-download-source', sourceID),
     installDownloadedUpdate: () => ipcRenderer.invoke('updater:install-downloaded-update'),

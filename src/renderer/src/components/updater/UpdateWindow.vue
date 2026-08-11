@@ -64,7 +64,13 @@
           </div>
         </div>
         <div class="footer-actions">
-          <button class="btn cancel" :disabled="isBusy" @click="closeWindow">稍后更新</button>
+          <button
+            class="btn cancel"
+            :disabled="status === 'installing' || isCancelling"
+            @click="handleSecondaryAction"
+          >
+            {{ secondaryButtonText }}
+          </button>
           <button class="btn confirm" :disabled="isBusy || !selectedSource" @click="startUpdate">
             {{ primaryButtonText }}
           </button>
@@ -112,6 +118,7 @@ const downloadProgress = ref(0)
 const transferredBytes = ref(0)
 const totalBytes = ref(0)
 const updateError = ref('')
+const isCancelling = ref(false)
 const selectedSourceID = ref<number | null>(null)
 const acrylicLightOpacity = ref(78)
 const acrylicDarkOpacity = ref(50)
@@ -154,6 +161,10 @@ const primaryButtonText = computed(() => {
   if (status.value === 'error') return '重试下载'
   return '下载并安装'
 })
+const secondaryButtonText = computed(() => {
+  if (isCancelling.value) return '正在取消...'
+  return status.value === 'downloading' ? '取消下载' : '稍后更新'
+})
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 MB'
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -195,6 +206,7 @@ const startUpdate = async (): Promise<void> => {
     transferredBytes.value = 0
     totalBytes.value = 0
     const result = await window.ztools.updater.startUpdate(selectedSource.value.id)
+    if (result.cancelled) return
     if (!result.success) {
       updateError.value = result.error || '下载更新失败'
       status.value = 'error'
@@ -207,15 +219,69 @@ const startUpdate = async (): Promise<void> => {
   }
 }
 
+/**
+ * 取消当前下载，并将窗口恢复为可重新下载的状态。
+ * @returns 取消操作完成后结束的 Promise。
+ */
+const cancelDownload = async (): Promise<void> => {
+  if (status.value !== 'downloading' || isCancelling.value) return
+
+  isCancelling.value = true
+  try {
+    const result = await window.ztools.updater.cancelUpdate()
+    if (!result.success) {
+      // 下载可能恰好完成，只有仍处于下载态时才展示取消失败。
+      if (status.value === 'downloading') {
+        updateError.value = result.error || '取消下载失败'
+        status.value = 'error'
+      }
+      return
+    }
+
+    // 取消后保留版本信息和下载源，方便用户重新发起下载。
+    downloadProgress.value = 0
+    transferredBytes.value = 0
+    totalBytes.value = 0
+    updateError.value = ''
+    status.value = 'available'
+  } catch (error) {
+    updateError.value = error instanceof Error ? error.message : '取消下载失败'
+    status.value = 'error'
+  } finally {
+    isCancelling.value = false
+  }
+}
+
+/**
+ * 根据当前下载状态执行取消下载或关闭窗口。
+ * @returns 操作完成后结束的 Promise。
+ */
+const handleSecondaryAction = async (): Promise<void> => {
+  if (status.value === 'downloading') {
+    await cancelDownload()
+    return
+  }
+  closeWindow()
+}
+
+/**
+ * 在非下载和非安装阶段关闭更新窗口。
+ * @returns 无返回值。
+ */
 const closeWindow = (): void => {
   if (isBusy.value) return
   // 发送 closeWindow 事件给主进程
   window.electron?.ipcRenderer.send('updater:close-window')
 }
 
+/**
+ * 处理更新窗口键盘操作，下载期间按 Escape 时取消下载。
+ * @param e 键盘事件。
+ * @returns 无返回值。
+ */
 const handleKeydown = (e: KeyboardEvent): void => {
-  if (e.key === 'Escape' && !isBusy.value) {
-    closeWindow()
+  if (e.key === 'Escape' && status.value !== 'installing') {
+    void handleSecondaryAction()
   } else if (e.key === 'Enter' && !isBusy.value) {
     void startUpdate()
   }
@@ -294,6 +360,13 @@ onMounted(() => {
     window.electron.ipcRenderer.on('update-downloaded', () => {
       downloadProgress.value = 100
       status.value = 'downloaded'
+    }),
+    window.electron.ipcRenderer.on('update-download-cancelled', () => {
+      downloadProgress.value = 0
+      transferredBytes.value = 0
+      totalBytes.value = 0
+      updateError.value = ''
+      status.value = 'available'
     }),
     window.electron.ipcRenderer.on('update-download-failed', (data: { error?: string }) => {
       updateError.value = data.error || '更新下载失败，请重试'

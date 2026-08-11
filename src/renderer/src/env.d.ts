@@ -316,7 +316,10 @@ declare global {
           error?: string
         }>
         showUpdateWindow: () => Promise<{ success: boolean; error?: string }>
-        startUpdate: (sourceID?: number) => Promise<{ success: boolean; error?: string }>
+        startUpdate: (
+          sourceID?: number
+        ) => Promise<{ success: boolean; cancelled?: boolean; error?: string }>
+        cancelUpdate: () => Promise<{ success: boolean; cancelled?: boolean; error?: string }>
         openDownloadSource: (sourceID: number) => Promise<{ success: boolean; error?: string }>
         installDownloadedUpdate: () => Promise<{ success: boolean; error?: string }>
         getDownloadStatus: () => Promise<{

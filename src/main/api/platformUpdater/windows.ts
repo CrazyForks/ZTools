@@ -126,6 +126,15 @@ class WindowsPlatformUpdater implements PlatformUpdaterService {
   }
 
   /**
+   * 取消当前 Windows 应用内更新下载。
+   * @returns 下载请求完全结束后的取消结果。
+   */
+  public async cancelUpdate(): Promise<PlatformUpdateActionResult> {
+    if (this.updater) return this.updater.cancelUpdate()
+    return { success: false, error: '当前没有正在下载的更新' }
+  }
+
+  /**
    * 安装已经下载完成的 Windows 更新。
    * @returns 安装启动结果；便携版始终返回不支持安装。
    */
