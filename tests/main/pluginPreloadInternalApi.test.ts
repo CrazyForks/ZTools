@@ -78,4 +78,16 @@ describe('plugin preload internal api bridge', () => {
       '/workspace/demo/plugin.json'
     )
   })
+
+  it('exposes accountDelete through the account IPC channel', async () => {
+    require(preloadPath)
+
+    const internalApi = (globalThis as any).window.ztools?.internal
+
+    expect(internalApi?.accountDelete).toBeTypeOf('function')
+
+    await internalApi.accountDelete()
+
+    expect(ipcInvoke).toHaveBeenCalledWith('account:delete')
+  })
 })

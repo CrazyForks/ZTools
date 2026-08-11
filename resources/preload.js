@@ -1174,6 +1174,11 @@ window.ztools = {
     accountSaveSession: async (params) =>
       await electron.ipcRenderer.invoke('account:save-session', params),
     accountLogout: async () => await electron.ipcRenderer.invoke('account:logout'),
+    /**
+     * 永久删除当前官方账号及其服务端数据。
+     * @returns {Promise<{success: boolean, error?: string}>} 删除账号和本地退出结果
+     */
+    accountDelete: async () => await electron.ipcRenderer.invoke('account:delete'),
     syncLogin: async (params) => await electron.ipcRenderer.invoke('sync:login', params),
     syncLoginPrivate: async (params) =>
       await electron.ipcRenderer.invoke('sync:login-private', params),

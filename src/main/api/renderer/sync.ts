@@ -290,6 +290,10 @@ export class SyncAPI {
     }
   }
 
+  /**
+   * 注册同步、认证和官方账号管理使用的主进程 IPC 处理器。
+   * @returns 无返回值。
+   */
   private setupIPC(): void {
     // 测试 WebSocket 连接
     ipcMain.handle('sync:test-connection', async (_event, config: SyncConfig) => {
@@ -386,6 +390,55 @@ export class SyncAPI {
       try {
         await clearOfficialAccountSession()
         storageManager.switchAccount(null)
+        activityHeartbeatService.runNow()
+        return { success: true }
+      } catch (error: any) {
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('account:delete', async () => {
+      try {
+        let config = await this.loadOfficialConfig()
+        if (!config?.serverUrl || !config.token) {
+          return { success: false, error: '未登录' }
+        }
+        const accountUid = config.username?.trim()
+        if (!accountUid || storageManager.getCurrentAccountUid() !== accountUid) {
+          return { success: false, error: '当前账号与本地数据空间不一致' }
+        }
+
+        // E2E 只验证隔离实例中的界面与本地退出流程，不访问真实官方账号。
+        if (process.env.ZTOOLS_E2E !== '1') {
+          /**
+           * 使用当前官方账号凭据请求删除服务端账号。
+           * @param activeConfig 本次请求使用的官方账号配置。
+           * @returns 服务端删除账号响应。
+           */
+          const send = (activeConfig: SyncConfig): Promise<Response> =>
+            fetch(`${this.syncServerUrlToHttp(activeConfig.serverUrl)}/api/account`, {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${activeConfig.token}` }
+            })
+
+          let response = await send(config)
+          if (response.status === 401 && config.refreshToken) {
+            const refreshed = await this.refreshOfficialToken(config)
+            if (refreshed) {
+              config = refreshed
+              response = await send(config)
+            }
+          }
+          const data = await response.json()
+          if (!response.ok) {
+            return { success: false, error: data.error || '删除账号失败' }
+          }
+        }
+
+        // 服务端删除成功后停止当前同步，再清理登录态和该账号的本地数据空间。
+        this.syncClient?.stop()
+        await clearOfficialAccountSession()
+        storageManager.deleteCurrentAccount(accountUid)
         activityHeartbeatService.runNow()
         return { success: true }
       } catch (error: any) {
@@ -527,7 +580,12 @@ export class SyncAPI {
         if (process.env.ZTOOLS_E2E === '1') {
           return {
             success: true,
-            profile: { uid: config.username || '', nickname: '', avatarUrl: '' }
+            stats: {
+              documentCount: 0,
+              attachmentCount: 0,
+              storageBytes: 0,
+              monthlyTraffic: 0
+            }
           }
         }
         let response = await fetch(
@@ -563,6 +621,13 @@ export class SyncAPI {
         let config = await this.loadOfficialConfig()
         if (!config?.serverUrl || !config.token) {
           return { success: false, error: '未登录' }
+        }
+        // 隔离 E2E 使用本地模拟资料，禁止读取线上账号。
+        if (process.env.ZTOOLS_E2E === '1') {
+          return {
+            success: true,
+            profile: { uid: config.username || '', nickname: '', avatarUrl: '' }
+          }
         }
         let response = await fetch(
           `${this.syncServerUrlToHttp(config.serverUrl)}/api/account/profile`,

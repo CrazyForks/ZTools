@@ -135,6 +135,55 @@ describe('ZTools 3.0 storage routing', () => {
     expect(managerB.getRouter().get('PLUGIN/demo/settings')?.data.value).toBe('alice')
     managerB.close()
   })
+
+  it('deletes only the current account directory and returns to persistent default storage', () => {
+    const homeDir = makeTempRoot()
+    const layout = getZToolsDataLayout({ homeDir })
+    const manager = new StorageManager({ homeDir, mapSize: 128 * 1024 * 1024 })
+
+    manager.getRouter().put({ _id: 'PLUGIN/demo/settings', data: { value: 'default' } })
+    manager.switchAccount('other-user')
+    manager.getRouter().put({ _id: 'PLUGIN/demo/settings', data: { value: 'other' } })
+    const otherAccountPath = path.join(layout.accountsRoot, hashAccountId('other-user'))
+
+    manager.switchAccount('delete-user')
+    manager.getRouter().put({ _id: 'PLUGIN/demo/settings', data: { value: 'delete-me' } })
+    const deletedAccountPath = path.join(layout.accountsRoot, hashAccountId('delete-user'))
+    expect(fs.existsSync(deletedAccountPath)).toBe(true)
+
+    manager.deleteCurrentAccount(' delete-user ')
+
+    expect(manager.getCurrentAccountUid()).toBeNull()
+    expect(manager.getRouter().get('PLUGIN/demo/settings')?.data.value).toBe('default')
+    expect(manager.getDeviceDb().get('SYNC/current-account')?.data.uid).toBeNull()
+    expect(fs.existsSync(deletedAccountPath)).toBe(false)
+    expect(fs.existsSync(otherAccountPath)).toBe(true)
+    expect(fs.existsSync(layout.defaultAccountLmdbPath)).toBe(true)
+    manager.close()
+
+    const reopenedManager = new StorageManager({ homeDir, mapSize: 128 * 1024 * 1024 })
+    expect(reopenedManager.getCurrentAccountUid()).toBeNull()
+    expect(reopenedManager.getRouter().get('PLUGIN/demo/settings')?.data.value).toBe('default')
+    reopenedManager.close()
+  })
+
+  it('rejects deleting an empty, default, or non-current account', () => {
+    const homeDir = makeTempRoot()
+    const layout = getZToolsDataLayout({ homeDir })
+    const manager = new StorageManager({ homeDir, mapSize: 128 * 1024 * 1024 })
+
+    expect(() => manager.deleteCurrentAccount('')).toThrow('账号标识不能为空')
+    expect(() => manager.deleteCurrentAccount('default')).toThrow('与当前本地账号不一致')
+    expect(fs.existsSync(layout.defaultAccountLmdbPath)).toBe(true)
+
+    manager.switchAccount('current-user')
+    const currentAccountPath = path.join(layout.accountsRoot, hashAccountId('current-user'))
+    expect(() => manager.deleteCurrentAccount('another-user')).toThrow('与当前本地账号不一致')
+    expect(manager.getCurrentAccountUid()).toBe('current-user')
+    expect(fs.existsSync(currentAccountPath)).toBe(true)
+    expect(fs.existsSync(layout.defaultAccountLmdbPath)).toBe(true)
+    manager.close()
+  })
 })
 
 describe('ZTools 3.0 legacy import', () => {

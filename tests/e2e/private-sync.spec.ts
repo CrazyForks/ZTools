@@ -1,4 +1,5 @@
 import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
+import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import http, { type Server as HttpServer } from 'node:http'
 import os from 'node:os'
@@ -221,6 +222,108 @@ test('可以切换私有部署、登录并开启同步', async ({ browserName: _
   }
 })
 
+test('个人中心确认删除账号后退出登录', async ({ browserName: _browserName }, testInfo) => {
+  const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-account-delete-playwright-'))
+  const legacyRoot = path.join(dataRoot, 'legacy')
+  const accountDirectory = path.join(
+    dataRoot,
+    'lmdb',
+    'accounts',
+    crypto.createHash('sha256').update('delete-account-user').digest('hex').slice(0, 16)
+  )
+  const screenshotPath = testInfo.outputPath('account-delete-confirmation.png')
+  let electronApp: ElectronApplication | null = null
+
+  await fs.mkdir(legacyRoot, { recursive: true })
+
+  try {
+    // 使用完全隔离的账号会话验证删除流程，不访问线上服务或真实用户数据。
+    electronApp = await electron.launch({
+      args: [projectRoot],
+      cwd: projectRoot,
+      env: {
+        ...Object.fromEntries(
+          Object.entries(process.env).filter((entry): entry is [string, string] =>
+            Boolean(entry[1])
+          )
+        ),
+        ZTOOLS_DATA_ROOT: dataRoot,
+        ZTOOLS_E2E: '1',
+        ZTOOLS_LEGACY_USER_DATA_PATH: legacyRoot,
+        ZTOOLS_SETTING_DEV_SERVER_URL: 'http://127.0.0.1:15177'
+      }
+    })
+
+    await openSettingsPlugin(electronApp)
+    await executeInSettings(
+      electronApp,
+      `
+      (async () => {
+        await window.ztools.internal.accountSaveSession({
+          username: 'delete-account-user',
+          token: ${JSON.stringify(createFutureJwt('delete-account-user'))},
+          refreshToken: ''
+        })
+        window.ztools.db.put({
+          _id: 'PLUGIN/e2e/account-delete-marker',
+          data: { account: 'delete-account-user' }
+        })
+        window.dispatchEvent(new CustomEvent('ztools-account-changed'))
+      })()
+    `
+    )
+    await expect(fs.stat(accountDirectory)).resolves.toBeTruthy()
+    await waitForSettingsText(electronApp, 'delete-account-user')
+    await executeInSettings(
+      electronApp,
+      `document.querySelector('.account-dock')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`
+    )
+    await waitForSettingsText(electronApp, '云同步用量')
+
+    await executeInSettings(
+      electronApp,
+      `document.querySelector('[data-testid="delete-account"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`
+    )
+    await waitForSettingsText(electronApp, '云同步数据、评论及其他账号相关数据将被删除')
+    await waitForSettingsDialogStable(electronApp)
+
+    const screenshot = await captureSettingsPlugin(electronApp)
+    await fs.writeFile(screenshotPath, screenshot)
+    await testInfo.attach('account-delete-confirmation', {
+      body: screenshot,
+      contentType: 'image/png'
+    })
+
+    await executeInSettings(
+      electronApp,
+      `
+      (() => {
+        const button = Array.from(document.querySelectorAll('.dialog-overlay button'))
+          .find((item) => item.textContent?.trim() === '永久删除')
+        if (!(button instanceof HTMLButtonElement)) throw new Error('未找到永久删除确认按钮')
+        button.click()
+      })()
+    `
+    )
+    await waitForSettingsText(electronApp, '开机自动启动')
+    await waitForSettingsText(electronApp, '注册/登录 ZTools')
+
+    const accountState = await executeInSettings(
+      electronApp,
+      `(async () => await window.ztools.internal.accountGetSession())()`
+    )
+    expect(accountState).toMatchObject({
+      success: true,
+      session: { username: 'delete-account-user', token: '', refreshToken: '' }
+    })
+    await expect(fs.stat(accountDirectory)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally {
+    // 始终关闭隔离 Electron，并且只清理本用例创建的数据目录。
+    await electronApp?.close()
+    await fs.rm(dataRoot, { recursive: true, force: true })
+  }
+})
+
 /**
  * 启动满足登录、checkpoint、空数据拉取和心跳流程的最小同步服务。
  * @returns 已开始监听测试端口的 HTTP 服务。
@@ -383,6 +486,31 @@ async function waitForSettingsSelectorHidden(
       { timeout: 15_000 }
     )
     .toBe(false)
+}
+
+/**
+ * 等待设置插件确认弹窗完成进入动画并恢复交互，确保截图包含稳定对话框。
+ * @param electronApp 当前 Electron 测试应用。
+ * @returns 弹窗视觉状态稳定后的 Promise。
+ */
+async function waitForSettingsDialogStable(electronApp: ElectronApplication): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        executeInSettings(
+          electronApp,
+          `
+          (() => {
+            const overlay = document.querySelector('.dialog-overlay')
+            if (!(overlay instanceof HTMLElement)) return false
+            const style = getComputedStyle(overlay)
+            return style.opacity === '1' && style.pointerEvents !== 'none'
+          })()
+        `
+        ),
+      { timeout: 15_000 }
+    )
+    .toBe(true)
 }
 
 /**

@@ -13,7 +13,7 @@ interface AccountProfileCache {
 }
 
 const router = useRouter()
-const { success, error, warning } = useToast()
+const { success, error, warning, confirm } = useToast()
 
 const username = ref('')
 const nickname = ref('')
@@ -23,6 +23,7 @@ const loadingStats = ref(false)
 const editingNickname = ref(false)
 const nicknameInput = ref('')
 const updatingNickname = ref(false)
+const deletingAccount = ref(false)
 const stats = ref<{
   documentCount: number
   attachmentCount: number
@@ -229,6 +230,35 @@ async function logout(): Promise<void> {
 }
 
 /**
+ * 确认后永久删除当前服务端账号，并在成功后退出 ZTools 登录。
+ * @returns 删除账号流程完成后结束的 Promise
+ */
+async function deleteAccount(): Promise<void> {
+  const confirmed = await confirm({
+    title: '删除账号',
+    message: `确定永久删除账号“${username.value}”吗？\n\n云同步数据、评论及其他账号相关数据将被删除，且无法恢复。`,
+    type: 'danger',
+    confirmText: '永久删除'
+  })
+  if (!confirmed) return
+
+  try {
+    deletingAccount.value = true
+    const result = await window.ztools.internal.accountDelete()
+    if (!result.success) throw new Error(result.error || '删除账号失败')
+
+    // 主进程已完成服务端删除与本地会话清理，这里只刷新界面登录态。
+    notifyAccountChanged()
+    success('账号已删除')
+    await router.replace({ name: 'GeneralSetting' })
+  } catch (err: unknown) {
+    error(err instanceof Error ? err.message : '删除账号失败')
+  } finally {
+    deletingAccount.value = false
+  }
+}
+
+/**
  * 进入昵称编辑状态并填充当前昵称。
  * @returns 无返回值
  */
@@ -390,7 +420,23 @@ function formatBytes(value?: number): string {
       </section>
 
       <footer class="profile-actions">
-        <button type="button" class="btn-danger" @click="logout">退出登录</button>
+        <button
+          type="button"
+          class="btn-action btn-secondary"
+          :disabled="deletingAccount"
+          @click="logout"
+        >
+          退出登录
+        </button>
+        <button
+          type="button"
+          class="btn-danger"
+          data-testid="delete-account"
+          :disabled="deletingAccount"
+          @click="deleteAccount"
+        >
+          {{ deletingAccount ? '删除中...' : '删除账号' }}
+        </button>
       </footer>
     </div>
   </div>
@@ -522,6 +568,7 @@ function formatBytes(value?: number): string {
 }
 
 .btn-sm,
+.btn-action,
 .btn-danger {
   border: 0;
   border-radius: 6px;
@@ -531,6 +578,11 @@ function formatBytes(value?: number): string {
 
 .btn-sm {
   padding: 7px 12px;
+  font-size: 13px;
+}
+
+.btn-action {
+  padding: 9px 16px;
   font-size: 13px;
 }
 
@@ -544,7 +596,9 @@ function formatBytes(value?: number): string {
   color: var(--text-color);
 }
 
-.btn-sm:disabled {
+.btn-sm:disabled,
+.btn-action:disabled,
+.btn-danger:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
@@ -586,6 +640,10 @@ function formatBytes(value?: number): string {
 }
 
 .profile-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding-top: 20px;
   border-top: 1px solid var(--divider-color);
 }
@@ -609,6 +667,11 @@ function formatBytes(value?: number): string {
   }
 
   .nickname-edit {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .profile-actions {
     align-items: stretch;
     flex-direction: column;
   }
