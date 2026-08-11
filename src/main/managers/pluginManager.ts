@@ -2123,6 +2123,29 @@ export class PluginManager {
   }
 
   /**
+   * 获取调用 WebContents 对应清单中的规范插件名称。
+   * @param webContents 插件页面的 WebContents 实例。
+   * @returns 清单名称与运行时插件匹配时返回规范名称，否则返回 null。
+   */
+  public getPluginManifestNameByWebContents(webContents: WebContents): string | null {
+    const pluginInfo = this.getPluginInfoByWebContents(webContents)
+    if (!pluginInfo) return null
+
+    try {
+      // 开发插件会附加 __dev 后缀，鉴权身份仍使用原始清单名称。
+      const manifestName = this.readPluginConfig(pluginInfo.path)?.name
+      if (typeof manifestName !== 'string' || !manifestName.trim()) return null
+      const canonicalName = manifestName.trim()
+      if (pluginInfo.name !== canonicalName && pluginInfo.name !== `${canonicalName}__dev`) {
+        return null
+      }
+      return canonicalName
+    } catch {
+      return null
+    }
+  }
+
+  /**
    * 根据插件名称获取插件的 WebContents
    * @param name 插件名称
    * @returns WebContents 实例，如果未找到则返回 null

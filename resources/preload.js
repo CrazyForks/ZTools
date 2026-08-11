@@ -305,6 +305,8 @@ window.ztools = {
   isDarkColors: () => electron.ipcRenderer.sendSync('is-dark-colors'),
   // 获取当前登录用户的公开资料
   getUser: () => ipcSendSync('getUser'),
+  // 获取当前插件访问 ZTools 服务端的短期鉴权令牌
+  getUserTempToken: () => ipcInvoke('getUserTempToken'),
   // 获取当前主题信息（isDark, primaryColor, customColor, windowMaterial）
   getThemeInfo: () => ipcSendSync('getThemeInfo'),
   // 监听主题变更
